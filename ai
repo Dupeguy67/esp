@@ -1,6 +1,7 @@
 --[[
-    MURDER MYSTERY 2 - FULL FUNCTIONAL SCRIPT
-    Fixed Toggle Buttons | Clean Line ESP | No Fly Mode
+    MURDER MYSTERY 2 - ULTIMATE SCRIPT
+    Features: Wall ESP | Aimbot (Auto Shoot) | Speed | Invisible | Auto Pickup
+    Keybinds: Insert(ESP) | Home(Aimbot) | Delete(Invisible) | End(Auto Shoot)
     Works on Delta Executor
 --]]
 
@@ -12,16 +13,22 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualUser = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
 
--- Settings (All start as false for testing)
+-- Settings
 local ESPEnabled = true
 local AimbotEnabled = true
+local AutoShootEnabled = false
 local SpeedEnabled = false
 local SpeedValue = 55
 local InvisibleEnabled = false
 local AutoPickupEnabled = true
+local LockTarget = false
+local CurrentTarget = nil
 
 -- Store original values
 local OriginalWalkSpeed = 16
@@ -30,11 +37,12 @@ local OriginalJumpPower = 50
 -- Role Data
 local PlayerRoles = {}
 
--- ESP Storage
+-- ESP Storage (Wall ESP)
 local ESPInstances = {}
+local WallESPFrames = {}
 
--- Aimbot Target
-local CurrentTarget = nil
+-- Track if ESP is being rebuilt
+local isRebuildingESP = false
 
 -- Get Player Role Function
 local function GetPlayerRole(Player)
@@ -92,8 +100,65 @@ local function FindMurderer()
     return nil
 end
 
--- Create Clean Line ESP
-local function CreateESP(Player)
+-- Get best target for aimbot
+local function GetBestTarget()
+    if LockTarget and CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild("Humanoid") and CurrentTarget.Character.Humanoid.Health > 0 then
+        return CurrentTarget
+    end
+    return FindMurderer()
+end
+
+-- Create Wall ESP (Shows through walls using Highlight)
+local function CreateWallESP(Player)
+    if Player == LocalPlayer then return end
+    if WallESPFrames[Player] then return end
+    
+    local Character = Player.Character
+    if not Character then return end
+    
+    local Highlight = Instance.new("Highlight")
+    Highlight.Name = "WallESP"
+    Highlight.FillColor = Color3.fromRGB(255, 0, 0)
+    Highlight.FillTransparency = 0.6
+    Highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    Highlight.OutlineTransparency = 0.3
+    Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    Highlight.Adornee = Character
+    Highlight.Parent = Character
+    
+    WallESPFrames[Player] = Highlight
+end
+
+-- Remove Wall ESP
+local function RemoveWallESP(Player)
+    if WallESPFrames[Player] then
+        WallESPFrames[Player]:Destroy()
+        WallESPFrames[Player] = nil
+    end
+end
+
+-- Update Wall ESP Colors based on role
+local function UpdateWallESPColor(Player)
+    local Highlight = WallESPFrames[Player]
+    if not Highlight then return end
+    
+    local Role = PlayerRoles[Player] or "Innocent"
+    local Color = nil
+    
+    if Role == "Murderer" then
+        Color = Color3.fromRGB(255, 40, 40)
+    elseif Role == "Sheriff" then
+        Color = Color3.fromRGB(40, 120, 255)
+    else
+        Color = Color3.fromRGB(40, 255, 40)
+    end
+    
+    Highlight.FillColor = Color
+    Highlight.Enabled = ESPEnabled
+end
+
+-- Create Billboard ESP (Name Tag)
+local function CreateBillboardESP(Player)
     if Player == LocalPlayer then return end
     if ESPInstances[Player] then return end
     
@@ -103,7 +168,13 @@ local function CreateESP(Player)
     local Head = Character:FindFirstChild("Head")
     if not Head then return end
     
-    -- Clean Line Billboard
+    -- Clean existing
+    for _, child in pairs(Head:GetChildren()) do
+        if child.Name == "CleanESP" then
+            child:Destroy()
+        end
+    end
+    
     local Billboard = Instance.new("BillboardGui")
     Billboard.Name = "CleanESP"
     Billboard.Size = UDim2.new(0, 220, 0, 55)
@@ -112,7 +183,6 @@ local function CreateESP(Player)
     Billboard.ResetOnSpawn = false
     Billboard.Parent = Head
     
-    -- Main Frame for better design
     local MainFrame = Instance.new("Frame")
     MainFrame.Size = UDim2.new(1, 0, 1, 0)
     MainFrame.BackgroundTransparency = 0.85
@@ -124,7 +194,6 @@ local function CreateESP(Player)
     MainCorner.CornerRadius = UDim.new(0, 8)
     MainCorner.Parent = MainFrame
     
-    -- Left color bar (role indicator)
     local ColorBar = Instance.new("Frame")
     ColorBar.Size = UDim2.new(0, 4, 1, 0)
     ColorBar.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
@@ -135,7 +204,6 @@ local function CreateESP(Player)
     BarCorner.CornerRadius = UDim.new(0, 4)
     BarCorner.Parent = ColorBar
     
-    -- Name Label
     local NameLabel = Instance.new("TextLabel")
     NameLabel.Size = UDim2.new(1, -10, 0, 20)
     NameLabel.Position = UDim2.new(0, 10, 0, 5)
@@ -147,7 +215,6 @@ local function CreateESP(Player)
     NameLabel.TextXAlignment = Enum.TextXAlignment.Left
     NameLabel.Parent = MainFrame
     
-    -- Role Label
     local RoleLabel = Instance.new("TextLabel")
     RoleLabel.Size = UDim2.new(1, -10, 0, 18)
     RoleLabel.Position = UDim2.new(0, 10, 0, 28)
@@ -159,7 +226,6 @@ local function CreateESP(Player)
     RoleLabel.TextXAlignment = Enum.TextXAlignment.Left
     RoleLabel.Parent = MainFrame
     
-    -- Distance Label
     local DistanceLabel = Instance.new("TextLabel")
     DistanceLabel.Size = UDim2.new(1, -10, 0, 16)
     DistanceLabel.Position = UDim2.new(0, 10, 0, 48)
@@ -181,8 +247,8 @@ local function CreateESP(Player)
     }
 end
 
--- Remove ESP
-local function RemoveESP(Player)
+-- Remove Billboard ESP
+local function RemoveBillboardESP(Player)
     if ESPInstances[Player] then
         if ESPInstances[Player].Billboard then
             ESPInstances[Player].Billboard:Destroy()
@@ -191,8 +257,46 @@ local function RemoveESP(Player)
     end
 end
 
+-- Remove all ESP
+local function RemoveAllESP(Player)
+    RemoveBillboardESP(Player)
+    RemoveWallESP(Player)
+end
+
+-- Rebuild ALL ESP
+local function RebuildAllESP()
+    if isRebuildingESP then return end
+    isRebuildingESP = true
+    
+    for Player, _ in pairs(ESPInstances) do
+        RemoveBillboardESP(Player)
+    end
+    for Player, _ in pairs(WallESPFrames) do
+        RemoveWallESP(Player)
+    end
+    
+    ESPInstances = {}
+    WallESPFrames = {}
+    
+    task.wait(0.5)
+    
+    for _, Player in pairs(Players:GetPlayers()) do
+        if Player ~= LocalPlayer then
+            task.wait(0.05)
+            CreateWallESP(Player)
+            CreateBillboardESP(Player)
+        end
+    end
+    
+    UpdateAllRoles()
+    UpdateESPDisplay()
+    
+    isRebuildingESP = false
+end
+
 -- Update ESP Display
 local function UpdateESPDisplay()
+    -- Update Billboard ESP
     for Player, Data in pairs(ESPInstances) do
         local Role = PlayerRoles[Player] or "Innocent"
         local RoleColor = nil
@@ -213,24 +317,20 @@ local function UpdateESPDisplay()
             Icon = "👤 "
         end
         
-        -- Update Color Bar
         if Data.ColorBar then
             Data.ColorBar.BackgroundColor3 = RoleColor
         end
         
-        -- Update Name Label with Icon
         if Data.NameLabel then
             Data.NameLabel.Text = Icon .. Player.Name
             Data.NameLabel.TextColor3 = RoleColor
         end
         
-        -- Update Role Label
         if Data.RoleLabel then
             Data.RoleLabel.Text = RoleText
             Data.RoleLabel.TextColor3 = RoleColor
         end
         
-        -- Update Distance
         if Data.DistanceLabel and Player.Character then
             local RootPart = Player.Character:FindFirstChild("HumanoidRootPart")
             if RootPart and LocalPlayer.Character then
@@ -242,10 +342,17 @@ local function UpdateESPDisplay()
             end
         end
         
-        -- Toggle Billboard visibility
         if Data.Billboard then
             Data.Billboard.Enabled = ESPEnabled
         end
+    end
+    
+    -- Update Wall ESP colors
+    for Player, Highlight in pairs(WallESPFrames) do
+        local Role = PlayerRoles[Player] or "Innocent"
+        local Color = Role == "Murderer" and Color3.fromRGB(255, 40, 40) or (Role == "Sheriff" and Color3.fromRGB(40, 120, 255) or Color3.fromRGB(40, 255, 40))
+        Highlight.FillColor = Color
+        Highlight.Enabled = ESPEnabled
     end
 end
 
@@ -317,37 +424,67 @@ local function AutoPickupWeapons()
     local Character = LocalPlayer.Character
     if not Character then return end
     
-    local RootPart = Character:FindFirstChild("HumanoidRootPart")
-    if not RootPart then return end
+    local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
+    if not HumanoidRootPart then return end
     
-    local CharacterPosition = RootPart.Position
+    local CharacterPosition = HumanoidRootPart.Position
     
     for _, Object in pairs(Workspace:GetDescendants()) do
         if Object:IsA("Tool") and Object.Parent ~= Character and Object.Parent ~= LocalPlayer.Backpack then
-            local ObjectName = Object.Name:lower()
-            local IsWeapon = ObjectName:find("gun") or ObjectName:find("pistol") or ObjectName:find("revolver") or ObjectName:find("sheriff")
             
-            if IsWeapon then
+            local ObjectName = Object.Name:lower()
+            local IsGun = ObjectName:find("gun") or ObjectName:find("pistol") or ObjectName:find("revolver") or ObjectName:find("sheriff") or Object:FindFirstChild("Handle")
+            
+            if IsGun then
                 local Distance = (CharacterPosition - Object.Position).Magnitude
-                if Distance <= 20 then
+                if Distance <= 25 then
                     local Prompt = Object:FindFirstChildOfClass("ProximityPrompt")
                     if Prompt then
-                        Prompt:Hold()
-                        task.wait(0.05)
-                        Prompt:Release()
+                        pcall(function()
+                            fireproximityprompt(Prompt)
+                            Prompt:Hold()
+                            task.wait(0.05)
+                            Prompt:Release()
+                        end)
                     end
-                    task.wait(0.3)
+                    task.wait(0.15)
                 end
             end
         end
     end
 end
 
--- Aimbot (only targets murderer)
+-- Aimbot + Auto Shoot
+local function ShootMurderer()
+    local Target = GetBestTarget()
+    if not Target then return end
+    
+    local Character = Target.Character
+    if not Character then return end
+    
+    local AimPart = Character:FindFirstChild("Head") or Character:FindFirstChild("HumanoidRootPart")
+    if not AimPart then return end
+    
+    -- Move camera to target
+    local TargetPosition = AimPart.Position
+    local CurrentCFrame = Camera.CFrame
+    local Direction = (TargetPosition - CurrentCFrame.Position).Unit
+    local TargetCFrame = CFrame.lookAt(CurrentCFrame.Position, CurrentCFrame.Position + Direction)
+    Camera.CFrame = TargetCFrame
+    
+    -- Click to shoot
+    task.wait(0.05)
+    pcall(function()
+        VirtualUser:ClickButton1(Vector2.new(Mouse.X, Mouse.Y))
+    end)
+    Mouse1Click()
+end
+
+-- Continuous Aimbot
 local function RunAimbot()
     if not AimbotEnabled then return end
     
-    local Target = FindMurderer()
+    local Target = GetBestTarget()
     if not Target then return end
     
     local Character = Target.Character
@@ -372,8 +509,8 @@ ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
 -- Main Frame
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 300, 0, 460)
-MainFrame.Position = UDim2.new(0.5, -150, 0.5, -230)
+MainFrame.Size = UDim2.new(0, 340, 0, 520)
+MainFrame.Position = UDim2.new(0.5, -170, 0.5, -260)
 MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 20)
 MainFrame.BackgroundTransparency = 0.08
 MainFrame.BorderSizePixel = 0
@@ -386,7 +523,7 @@ MainCorner.Parent = MainFrame
 
 -- Header
 local HeaderFrame = Instance.new("Frame")
-HeaderFrame.Size = UDim2.new(1, 0, 0, 45)
+HeaderFrame.Size = UDim2.new(1, 0, 0, 50)
 HeaderFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 45)
 HeaderFrame.BackgroundTransparency = 0.2
 HeaderFrame.BorderSizePixel = 0
@@ -400,37 +537,37 @@ local TitleLabel = Instance.new("TextLabel")
 TitleLabel.Size = UDim2.new(1, -70, 1, 0)
 TitleLabel.Position = UDim2.new(0, 15, 0, 0)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "MM2 CLEAN ESP"
+TitleLabel.Text = "MM2 ULTIMATE SCRIPT"
 TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-TitleLabel.TextSize = 14
+TitleLabel.TextSize = 15
 TitleLabel.Font = Enum.Font.GothamBold
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Parent = HeaderFrame
 
 local MinimizeButton = Instance.new("TextButton")
-MinimizeButton.Size = UDim2.new(0, 32, 1, 0)
-MinimizeButton.Position = UDim2.new(1, -68, 0, 0)
+MinimizeButton.Size = UDim2.new(0, 35, 1, 0)
+MinimizeButton.Position = UDim2.new(1, -70, 0, 0)
 MinimizeButton.BackgroundTransparency = 1
 MinimizeButton.Text = "−"
 MinimizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinimizeButton.TextSize = 22
+MinimizeButton.TextSize = 24
 MinimizeButton.Font = Enum.Font.GothamBold
 MinimizeButton.Parent = HeaderFrame
 
 local CloseButton = Instance.new("TextButton")
-CloseButton.Size = UDim2.new(0, 32, 1, 0)
-CloseButton.Position = UDim2.new(1, -36, 0, 0)
+CloseButton.Size = UDim2.new(0, 35, 1, 0)
+CloseButton.Position = UDim2.new(1, -35, 0, 0)
 CloseButton.BackgroundTransparency = 1
 CloseButton.Text = "✕"
 CloseButton.TextColor3 = Color3.fromRGB(255, 80, 80)
-CloseButton.TextSize = 16
+CloseButton.TextSize = 18
 CloseButton.Font = Enum.Font.GothamBold
 CloseButton.Parent = HeaderFrame
 
 -- Content Area
 local ContentArea = Instance.new("Frame")
-ContentArea.Size = UDim2.new(1, 0, 1, -45)
-ContentArea.Position = UDim2.new(0, 0, 0, 45)
+ContentArea.Size = UDim2.new(1, 0, 1, -50)
+ContentArea.Position = UDim2.new(0, 0, 0, 50)
 ContentArea.BackgroundTransparency = 1
 ContentArea.Parent = MainFrame
 
@@ -447,14 +584,14 @@ UIList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 UIList.Parent = ScrollArea
 
 -- Button Creator
-local function CreateButton(Text)
+local function CreateButton(Text, Color)
     local Button = Instance.new("TextButton")
-    Button.Size = UDim2.new(0, 270, 0, 42)
-    Button.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+    Button.Size = UDim2.new(0, 300, 0, 45)
+    Button.BackgroundColor3 = Color or Color3.fromRGB(25, 25, 40)
     Button.BackgroundTransparency = 0.2
     Button.Text = Text
     Button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Button.TextSize = 13
+    Button.TextSize = 14
     Button.Font = Enum.Font.GothamSemibold
     Button.Parent = ScrollArea
     
@@ -468,7 +605,7 @@ end
 -- Slider Creator
 local function CreateSlider(Name, Min, Max, Default, Callback)
     local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 270, 0, 55)
+    Frame.Size = UDim2.new(0, 300, 0, 60)
     Frame.BackgroundColor3 = Color3.fromRGB(20, 20, 32)
     Frame.BackgroundTransparency = 0.3
     Frame.Parent = ScrollArea
@@ -490,7 +627,7 @@ local function CreateSlider(Name, Min, Max, Default, Callback)
     
     local SliderBar = Instance.new("TextButton")
     SliderBar.Size = UDim2.new(1, -24, 0, 14)
-    SliderBar.Position = UDim2.new(0, 12, 0, 32)
+    SliderBar.Position = UDim2.new(0, 12, 0, 35)
     SliderBar.BackgroundColor3 = Color3.fromRGB(45, 45, 65)
     SliderBar.Text = ""
     SliderBar.Parent = Frame
@@ -545,7 +682,7 @@ end
 -- Badge Creator
 local function CreateBadge(Text, Color)
     local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 270, 0, 32)
+    Frame.Size = UDim2.new(0, 300, 0, 32)
     Frame.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
     Frame.BackgroundTransparency = 0.3
     Frame.Parent = ScrollArea
@@ -567,11 +704,13 @@ local function CreateBadge(Text, Color)
 end
 
 -- Create UI Elements
-local ESPButton = CreateButton("◉ ESP VISUAL [ON]")
-local AimbotButton = CreateButton("◉ AIM ASSIST [ON]")
-local SpeedButton = CreateButton("◉ SPEED BOOST [OFF]")
-local InvisibleButton = CreateButton("◉ GHOST MODE [OFF]")
-local PickupButton = CreateButton("◉ AUTO COLLECT [ON]")
+local ESPButton = CreateButton("◉ WALL ESP [ON]", Color3.fromRGB(30, 30, 50))
+local AimbotButton = CreateButton("◉ AIM ASSIST [ON]", Color3.fromRGB(30, 30, 50))
+local AutoShootButton = CreateButton("🔫 AUTO SHOOT MURDERER [OFF]", Color3.fromRGB(40, 20, 20))
+local LockButton = CreateButton("🔒 LOCK TARGET [OFF]", Color3.fromRGB(30, 30, 50))
+local SpeedButton = CreateButton("◉ SPEED BOOST [OFF]", Color3.fromRGB(30, 30, 50))
+local InvisibleButton = CreateButton("◉ GHOST MODE [OFF]", Color3.fromRGB(30, 30, 50))
+local PickupButton = CreateButton("◉ AUTO COLLECT [ON]", Color3.fromRGB(30, 30, 50))
 
 -- Speed Slider
 CreateSlider("⚡ SPEED VALUE", 16, 120, 55, function(Value)
@@ -582,15 +721,17 @@ CreateSlider("⚡ SPEED VALUE", 16, 120, 55, function(Value)
 end)
 
 -- Badges
-local _, ESPBadge = CreateBadge("ESP: ACTIVE", Color3.fromRGB(0, 255, 0))
+local _, ESPBadge = CreateBadge("WALL ESP: ACTIVE", Color3.fromRGB(0, 255, 0))
 local _, AimbotBadge = CreateBadge("AIMBOT: ACTIVE", Color3.fromRGB(0, 255, 0))
+local _, AutoShootBadge = CreateBadge("AUTO SHOOT: INACTIVE", Color3.fromRGB(255, 0, 0))
+local _, LockBadge = CreateBadge("TARGET LOCK: OFF", Color3.fromRGB(255, 0, 0))
 local _, SpeedBadge = CreateBadge("SPEED: INACTIVE", Color3.fromRGB(255, 0, 0))
 local _, InvisibleBadge = CreateBadge("GHOST: INACTIVE", Color3.fromRGB(255, 0, 0))
 local _, PickupBadge = CreateBadge("AUTO COLLECT: ACTIVE", Color3.fromRGB(0, 255, 0))
 
 -- Legend Frame
 local LegendFrame = Instance.new("Frame")
-LegendFrame.Size = UDim2.new(0, 270, 0, 105)
+LegendFrame.Size = UDim2.new(0, 300, 0, 130)
 LegendFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
 LegendFrame.BackgroundTransparency = 0.3
 LegendFrame.Parent = ScrollArea
@@ -605,14 +746,14 @@ LegendTitle.Position = UDim2.new(0, 10, 0, 5)
 LegendTitle.BackgroundTransparency = 1
 LegendTitle.Text = "LEGEND"
 LegendTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-LegendTitle.TextSize = 12
+LegendTitle.TextSize = 13
 LegendTitle.Font = Enum.Font.GothamBold
 LegendTitle.TextXAlignment = Enum.TextXAlignment.Left
 LegendTitle.Parent = LegendFrame
 
 local function AddLegendItem(Text, Color, X, Y)
     local Label = Instance.new("TextLabel")
-    Label.Size = UDim2.new(0, 85, 0, 20)
+    Label.Size = UDim2.new(0, 95, 0, 20)
     Label.Position = UDim2.new(0, X, 0, Y)
     Label.BackgroundTransparency = 1
     Label.Text = Text
@@ -622,17 +763,19 @@ local function AddLegendItem(Text, Color, X, Y)
     Label.Parent = LegendFrame
 end
 
-AddLegendItem("🔪 MURDERER", Color3.fromRGB(255, 50, 50), 5, 32)
-AddLegendItem("⭐ SHERIFF", Color3.fromRGB(50, 120, 255), 95, 32)
-AddLegendItem("👤 INNOCENT", Color3.fromRGB(50, 255, 50), 185, 32)
-AddLegendItem("🎯 AIMBOT", Color3.fromRGB(255, 140, 40), 5, 55)
-AddLegendItem("⚡ SPEED", Color3.fromRGB(255, 200, 40), 95, 55)
-AddLegendItem("👻 GHOST", Color3.fromRGB(200, 60, 200), 185, 55)
-AddLegendItem("🔫 AUTO PICKUP", Color3.fromRGB(200, 200, 40), 5, 78)
+AddLegendItem("🔪 MURDERER", Color3.fromRGB(255, 50, 50), 5, 35)
+AddLegendItem("⭐ SHERIFF", Color3.fromRGB(50, 120, 255), 105, 35)
+AddLegendItem("👤 INNOCENT", Color3.fromRGB(50, 255, 50), 205, 35)
+AddLegendItem("🎯 AIMBOT", Color3.fromRGB(255, 140, 40), 5, 60)
+AddLegendItem("🔫 AUTO SHOOT", Color3.fromRGB(255, 80, 80), 105, 60)
+AddLegendItem("🔒 LOCK TARGET", Color3.fromRGB(255, 200, 40), 205, 60)
+AddLegendItem("⚡ SPEED", Color3.fromRGB(255, 200, 40), 5, 85)
+AddLegendItem("👻 GHOST", Color3.fromRGB(200, 60, 200), 105, 85)
+AddLegendItem("🔫 AUTO PICKUP", Color3.fromRGB(200, 200, 40), 205, 85)
 
 -- FPS Display
 local FPSFrame = Instance.new("Frame")
-FPSFrame.Size = UDim2.new(0, 270, 0, 35)
+FPSFrame.Size = UDim2.new(0, 300, 0, 35)
 FPSFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
 FPSFrame.BackgroundTransparency = 0.3
 FPSFrame.Parent = ScrollArea
@@ -653,17 +796,17 @@ FPSLabel.Parent = FPSFrame
 -- Update Scroll Height
 task.spawn(function()
     task.wait(0.1)
-    ScrollArea.CanvasSize = UDim2.new(0, 0, 0, 680)
+    ScrollArea.CanvasSize = UDim2.new(0, 0, 0, 850)
 end)
 
 -- GUI Logic
 local Minimized = false
-local FullHeight = 460
-local CompactHeight = 45
+local FullHeight = 520
+local CompactHeight = 50
 
 MinimizeButton.MouseButton1Click:Connect(function()
     Minimized = not Minimized
-    MainFrame.Size = UDim2.new(0, 300, 0, Minimized and CompactHeight or FullHeight)
+    MainFrame.Size = UDim2.new(0, 340, 0, Minimized and CompactHeight or FullHeight)
     ContentArea.Visible = not Minimized
     MinimizeButton.Text = Minimized and "+" or "−"
 end)
@@ -697,16 +840,16 @@ UserInputService.InputChanged:Connect(function(Input)
     end
 end)
 
--- Button Actions (Fixed Toggle Logic)
+-- Button Actions
 ESPButton.MouseButton1Click:Connect(function()
     ESPEnabled = not ESPEnabled
     if ESPEnabled then
-        ESPButton.Text = "◉ ESP VISUAL [ON]"
-        ESPBadge.Text = "ESP: ACTIVE"
+        ESPButton.Text = "◉ WALL ESP [ON]"
+        ESPBadge.Text = "WALL ESP: ACTIVE"
         ESPBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
     else
-        ESPButton.Text = "◉ ESP VISUAL [OFF]"
-        ESPBadge.Text = "ESP: INACTIVE"
+        ESPButton.Text = "◉ WALL ESP [OFF]"
+        ESPBadge.Text = "WALL ESP: INACTIVE"
         ESPBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
     end
     UpdateESPDisplay()
@@ -722,6 +865,37 @@ AimbotButton.MouseButton1Click:Connect(function()
         AimbotButton.Text = "◉ AIM ASSIST [OFF]"
         AimbotBadge.Text = "AIMBOT: INACTIVE"
         AimbotBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
+    end
+end)
+
+AutoShootButton.MouseButton1Click:Connect(function()
+    AutoShootEnabled = not AutoShootEnabled
+    if AutoShootEnabled then
+        AutoShootButton.Text = "🔫 AUTO SHOOT MURDERER [ON]"
+        AutoShootBadge.Text = "AUTO SHOOT: ACTIVE"
+        AutoShootBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
+    else
+        AutoShootButton.Text = "🔫 AUTO SHOOT MURDERER [OFF]"
+        AutoShootBadge.Text = "AUTO SHOOT: INACTIVE"
+        AutoShootBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
+    end
+end)
+
+LockButton.MouseButton1Click:Connect(function()
+    LockTarget = not LockTarget
+    if LockTarget then
+        LockButton.Text = "🔒 LOCK TARGET [ON]"
+        LockBadge.Text = "TARGET LOCK: ON"
+        LockBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
+        local murderer = FindMurderer()
+        if murderer then
+            CurrentTarget = murderer
+        end
+    else
+        LockButton.Text = "🔒 LOCK TARGET [OFF]"
+        LockBadge.Text = "TARGET LOCK: OFF"
+        LockBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
+        CurrentTarget = nil
     end
 end)
 
@@ -775,12 +949,12 @@ UserInputService.InputBegan:Connect(function(Input, GameProcessed)
     if Input.KeyCode == Enum.KeyCode.Insert then
         ESPEnabled = not ESPEnabled
         if ESPEnabled then
-            ESPButton.Text = "◉ ESP VISUAL [ON]"
-            ESPBadge.Text = "ESP: ACTIVE"
+            ESPButton.Text = "◉ WALL ESP [ON]"
+            ESPBadge.Text = "WALL ESP: ACTIVE"
             ESPBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
         else
-            ESPButton.Text = "◉ ESP VISUAL [OFF]"
-            ESPBadge.Text = "ESP: INACTIVE"
+            ESPButton.Text = "◉ WALL ESP [OFF]"
+            ESPBadge.Text = "WALL ESP: INACTIVE"
             ESPBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
         end
         UpdateESPDisplay()
@@ -808,6 +982,35 @@ UserInputService.InputBegan:Connect(function(Input, GameProcessed)
             InvisibleBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
             SetInvisible(false)
         end
+    elseif Input.KeyCode == Enum.KeyCode.End then
+        ShootMurderer()
+    elseif Input.KeyCode == Enum.KeyCode.PageUp then
+        AutoShootEnabled = not AutoShootEnabled
+        if AutoShootEnabled then
+            AutoShootButton.Text = "🔫 AUTO SHOOT MURDERER [ON]"
+            AutoShootBadge.Text = "AUTO SHOOT: ACTIVE"
+            AutoShootBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
+        else
+            AutoShootButton.Text = "🔫 AUTO SHOOT MURDERER [OFF]"
+            AutoShootBadge.Text = "AUTO SHOOT: INACTIVE"
+            AutoShootBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
+        end
+    elseif Input.KeyCode == Enum.KeyCode.PageDown then
+        LockTarget = not LockTarget
+        if LockTarget then
+            LockButton.Text = "🔒 LOCK TARGET [ON]"
+            LockBadge.Text = "TARGET LOCK: ON"
+            LockBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
+            local murderer = FindMurderer()
+            if murderer then
+                CurrentTarget = murderer
+            end
+        else
+            LockButton.Text = "🔒 LOCK TARGET [OFF]"
+            LockBadge.Text = "TARGET LOCK: OFF"
+            LockBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
+            CurrentTarget = nil
+        end
     end
 end)
 
@@ -831,25 +1034,38 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- Initialize ESP
-for _, Player in pairs(Players:GetPlayers()) do
-    if Player ~= LocalPlayer then
-        task.wait(0.05)
-        CreateESP(Player)
+local function InitializeESP()
+    for _, Player in pairs(Players:GetPlayers()) do
+        if Player ~= LocalPlayer then
+            task.wait(0.05)
+            CreateWallESP(Player)
+            CreateBillboardESP(Player)
+        end
     end
+    UpdateAllRoles()
+    UpdateESPDisplay()
 end
 
+-- Player added handler
 Players.PlayerAdded:Connect(function(Player)
     task.wait(0.5)
     if Player ~= LocalPlayer then
-        CreateESP(Player)
+        CreateWallESP(Player)
+        CreateBillboardESP(Player)
+        task.wait(0.3)
+        UpdateAllRoles()
+        UpdateESPDisplay()
     end
 end)
 
-Players.PlayerRemoving:Connect(RemoveESP)
+-- Player removed handler
+Players.PlayerRemoving:Connect(function(Player)
+    RemoveAllESP(Player)
+end)
 
--- Character Respawn Handler
+-- Character added handler
 LocalPlayer.CharacterAdded:Connect(function(Character)
-    task.wait(1)
+    task.wait(1.5)
     
     if SpeedEnabled then
         SetSpeed(true, SpeedValue)
@@ -858,56 +1074,72 @@ LocalPlayer.CharacterAdded:Connect(function(Character)
         SetInvisible(true)
     end
     
-    -- Recreate ESP for all players
-    for _, Player in pairs(Players:GetPlayers()) do
-        if Player ~= LocalPlayer then
-            CreateESP(Player)
-        end
-    end
+    RebuildAllESP()
     
     task.wait(0.5)
     UpdateAllRoles()
     UpdateESPDisplay()
 end)
 
--- Main Loops
-task.wait(1)
-UpdateAllRoles()
-UpdateESPDisplay()
+-- Start everything
+InitializeESP()
 
--- Aimbot Loop
+-- Main Loops
 RunService.RenderStepped:Connect(function()
     if AimbotEnabled then
         RunAimbot()
     end
 end)
 
+-- Auto Shoot Loop
+task.spawn(function()
+    while task.wait(0.1) do
+        if AutoShootEnabled then
+            ShootMurderer()
+            task.wait(0.5)
+        end
+    end
+end)
+
 -- Auto Pickup Loop
 task.spawn(function()
-    while task.wait(0.3) do
+    while task.wait(0.2) do
         if AutoPickupEnabled then
-            AutoPickupWeapons()
+            pcall(AutoPickupWeapons)
         end
     end
 end)
 
 -- Role Update Loop
 task.spawn(function()
-    while task.wait(1.5) do
-        if ESPEnabled then
-            UpdateAllRoles()
-            UpdateESPDisplay()
+    while task.wait(1) do
+        UpdateAllRoles()
+        UpdateESPDisplay()
+    end
+end)
+
+-- Update lock target
+task.spawn(function()
+    while task.wait(0.5) do
+        if LockTarget and not CurrentTarget then
+            local murderer = FindMurderer()
+            if murderer then
+                CurrentTarget = murderer
+            end
         end
     end
 end)
 
 print("========================================")
-print("MM2 CLEAN ESP LOADED SUCCESSFULLY!")
+print("MM2 ULTIMATE SCRIPT LOADED SUCCESSFULLY!")
 print("========================================")
 print("KEYBINDS:")
-print("INSERT - Toggle ESP")
+print("INSERT - Toggle Wall ESP")
 print("HOME - Toggle Aimbot")
 print("DELETE - Toggle Invisible")
+print("END - Shoot Murderer (Manual)")
+print("PAGE UP - Toggle Auto Shoot")
+print("PAGE DOWN - Toggle Target Lock")
 print("========================================")
 
 task.wait(9e9)
