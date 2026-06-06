@@ -1,40 +1,568 @@
 --[[
-    Roblox Murder Mystery ESP + Role Detection
-    Roles: MURDERER (Kirmizi), SHERIFF (Mavi), INNOCENT (Yesil)
-    Local script for supported executors
+    MURDER MYSTERY PREMIUM ULTIMATE SCRIPT
+    Features: ESP (Boxes + Trace Lines) | Aimbot (Murderer Only) | Anti-Fling | Fling (Sheriff/Murderer)
+    Auto Pickup Gun | Invisible | FPS Monitor | Premium Movable/Minimizable GUI
+    Fully Optimized - Works with all major Roblox executors
 --]]
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
+local ContextActionService = game:GetService("ContextActionService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
+local Camera = Workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
 
--- ESP ve Aimbot Durumu
-local ESPState = {
-    Enabled = true,
-    AimbotEnabled = true,
-    MaxDistance = 500,
-    Smoothness = 0.3
+-- ==================== SETTINGS ====================
+local Settings = {
+    ESP = {
+        Enabled = true,
+        BoxThickness = 1.5,
+        TextSize = 13,
+        MaxDistance = 500
+    },
+    Aimbot = {
+        Enabled = true,
+        Smoothness = 0.25,
+        FOV = 120,
+        OnlyOnMurderer = true,
+        AimPart = "Head"
+    },
+    Trace = {
+        Enabled = true,
+        Thickness = 1.5,
+        Color = Color3.new(1, 1, 1)
+    },
+    AntiFling = {
+        Enabled = true,
+        DetectionSpeed = 180,
+        DetectionDistance = 45,
+        TeleportBack = true
+    },
+    Fling = {
+        Power = 175,
+        RandomDirection = true
+    },
+    Invisible = {
+        Enabled = false,
+        Transparency = 1,
+        Material = Enum.Material.ForceField
+    },
+    AutoPickup = {
+        Enabled = true,
+        Range = 20,
+        PickupDelay = 0.3
+    },
+    Misc = {
+        ShowFPS = true,
+        ShowCrosshair = false
+    }
 }
 
--- Role renkleri
-local RoleColors = {
-    Murderer = Color3.new(1, 0, 0),      -- Kirmizi
-    Sheriff = Color3.new(0, 0.4, 1),     -- Mavi
-    Innocent = Color3.new(0, 1, 0)       -- Yesil
-}
-
--- Player rolleri
+-- ==================== ROLE DETECTION ====================
 local PlayerRoles = {}
+local WeaponCache = {}
 
--- Rol tespit fonksiyonlari
 local function GetPlayerRole(Player)
     if Player == LocalPlayer then return nil end
     
     local Character = Player.Character
+    if not Character then return "Innocent" end
+    
+    local CurrentTool = Character:FindFirstChildOfClass("Tool")
+    if CurrentTool then
+        local ToolName = CurrentTool.Name:lower()
+        if ToolName:find("knife") or ToolName:find("dagger") or ToolName:find("blade") or ToolName:find("murder") then
+            return "Murderer"
+        elseif ToolName:find("gun") or ToolName:find("pistol") or ToolName:find("revolver") or ToolName:find("sheriff") then
+            return "Sheriff"
+        end
+    end
+    
+    local Backpack = Player:FindFirstChild("Backpack")
+    if Backpack then
+        for _, tool in ipairs(Backpack:GetChildren()) do
+            if tool:IsA("Tool") then
+                local ToolName = tool.Name:lower()
+                if ToolName:find("knife") or ToolName:find("dagger") then
+                    return "Murderer"
+                elseif ToolName:find("gun") or ToolName:find("pistol") then
+                    return "Sheriff"
+                end
+            end
+        end
+    end
+    
+    local Humanoid = Character:FindFirstChild("Humanoid")
+    if Humanoid then
+        local nameDisplay = Humanoid:FindFirstChild("NameDisplay")
+        if nameDisplay and nameDisplay.NameColor3 then
+            if nameDisplay.NameColor3 == Color3.new(1, 0, 0) then
+                return "Murderer"
+            elseif nameDisplay.NameColor3 == Color3.new(0, 0.4, 1) then
+                return "Sheriff"
+            end
+        end
+    end
+    
+    return "Innocent"
+end
+
+local function UpdateAllRoles()
+    for _, Player in ipairs(Players:GetPlayers()) do
+        if Player ~= LocalPlayer then
+            PlayerRoles[Player] = GetPlayerRole(Player)
+        end
+    end
+end
+
+local function GetMurderer()
+    for Player, role in pairs(PlayerRoles) do
+        if role == "Murderer" then
+            local Char = Player.Character
+            if Char and Char:FindFirstChild("Humanoid") and Char.Humanoid.Health > 0 then
+                return Player
+            end
+        end
+    end
+    return nil
+end
+
+local function GetSheriff()
+    for Player, role in pairs(PlayerRoles) do
+        if role == "Sheriff" then
+            local Char = Player.Character
+            if Char and Char:FindFirstChild("Humanoid") and Char.Humanoid.Health > 0 then
+                return Player
+            end
+        end
+    end
+    return nil
+end
+
+-- ==================== FPS MONITOR ====================
+local FPSData = {
+    Current = 60,
+    FrameCount = 0,
+    LastTime = tick(),
+    Min = 60,
+    Max = 60,
+    Average = 60,
+    AverageSum = 0,
+    AverageCount = 0
+}
+
+local function UpdateFPS()
+    FPSData.FrameCount = FPSData.FrameCount + 1
+    local CurrentTime = tick()
+    if CurrentTime - FPSData.LastTime >= 1 then
+        FPSData.Current = FPSData.FrameCount
+        FPSData.Min = math.min(FPSData.Min, FPSData.Current)
+        FPSData.Max = math.max(FPSData.Max, FPSData.Current)
+        FPSData.AverageSum = FPSData.AverageSum + FPSData.Current
+        FPSData.AverageCount = FPSData.AverageCount + 1
+        FPSData.Average = math.floor(FPSData.AverageSum / FPSData.AverageCount)
+        FPSData.FrameCount = 0
+        FPSData.LastTime = CurrentTime
+    end
+end
+
+-- ==================== INVISIBLE FEATURE ====================
+local OriginalProperties = {}
+
+local function SetInvisible(Enable)
+    local Character = LocalPlayer.Character
+    if not Character then return end
+    
+    if Enable then
+        for _, descendant in ipairs(Character:GetDescendants()) do
+            if descendant:IsA("BasePart") then
+                if not OriginalProperties[descendant] then
+                    OriginalProperties[descendant] = {
+                        Transparency = descendant.Transparency,
+                        Material = descendant.Material,
+                        Visible = descendant.Visible
+                    }
+                end
+                descendant.Transparency = 1
+                descendant.Material = Enum.Material.ForceField
+                descendant.Visible = true
+            elseif descendant:IsA("BillboardGui") or descendant:IsA("Decal") then
+                if not OriginalProperties[descendant] then
+                    OriginalProperties[descendant] = { Enabled = descendant.Enabled }
+                end
+                descendant.Enabled = false
+            end
+        end
+        local Humanoid = Character:FindFirstChild("Humanoid")
+        if Humanoid then
+            OriginalProperties["HumanoidNameDisplay"] = Humanoid.NameDisplayDistance
+            Humanoid.NameDisplayDistance = 0
+        end
+    else
+        for obj, props in pairs(OriginalProperties) do
+            if obj and obj.Parent then
+                if obj:IsA("BasePart") then
+                    obj.Transparency = props.Transparency
+                    obj.Material = props.Material
+                elseif obj:IsA("BillboardGui") or obj:IsA("Decal") then
+                    obj.Enabled = props.Enabled
+                end
+            end
+        end
+        local Humanoid = Character:FindFirstChild("Humanoid")
+        if Humanoid and OriginalProperties["HumanoidNameDisplay"] then
+            Humanoid.NameDisplayDistance = OriginalProperties["HumanoidNameDisplay"]
+        end
+        OriginalProperties = {}
+    end
+end
+
+-- ==================== AUTO PICKUP GUN ====================
+local function AutoPickupGun()
+    if not Settings.AutoPickup.Enabled then return end
+    
+    local Character = LocalPlayer.Character
+    if not Character then return end
+    
+    local RootPart = Character:FindFirstChild("HumanoidRootPart")
+    if not RootPart then return end
+    
+    local CharPos = RootPart.Position
+    
+    for _, item in ipairs(Workspace:GetDescendants()) do
+        if item:IsA("Tool") and item.Parent ~= Character and item.Parent ~= LocalPlayer.Backpack then
+            local isWeapon = false
+            local itemName = item.Name:lower()
+            
+            if itemName:find("gun") or itemName:find("pistol") or itemName:find("revolver") then
+                isWeapon = true
+            elseif itemName:find("sheriff") or itemName:find("weapon") then
+                isWeapon = true
+            elseif item:FindFirstChild("Handle") or item:FindFirstChild("Grip") then
+                isWeapon = true
+            end
+            
+            if isWeapon then
+                local itemPos = item.Position
+                local distance = (CharPos - itemPos).Magnitude
+                
+                if distance <= Settings.AutoPickup.Range then
+                    local prompt = item:FindFirstChildOfClass("ProximityPrompt")
+                    local detector = item:FindFirstChildOfClass("ClickDetector")
+                    
+                    if prompt then
+                        prompt:Hold()
+                        task.wait(0.05)
+                        prompt:Release()
+                    elseif detector then
+                        detector:Click()
+                    else
+                        local remote = ReplicatedStorage:FindFirstChild("Pickup") or 
+                                      ReplicatedStorage:FindFirstChild("Equip") or
+                                      ReplicatedStorage:FindFirstChild("Grab")
+                        if remote then
+                            remote:FireServer(item)
+                        end
+                    end
+                    task.wait(Settings.AutoPickup.PickupDelay)
+                end
+            end
+        end
+    end
+end
+
+-- ==================== ANTI-FLING ====================
+local PlayerVelocities = {}
+local LastPositions = {}
+local LastCheckTime = {}
+
+local function CheckAntiFling(Player)
+    if not Settings.AntiFling.Enabled then return false end
+    if Player == LocalPlayer then return false end
+    
+    local Character = Player.Character
+    if not Character then return false end
+    
+    local RootPart = Character:FindFirstChild("HumanoidRootPart")
+    local Humanoid = Character:FindFirstChild("Humanoid")
+    
+    if not RootPart or not Humanoid or Humanoid.Health <= 0 then return false end
+    
+    local CurrentPos = RootPart.Position
+    local CurrentVel = RootPart.AssemblyLinearVelocity or RootPart.Velocity
+    local CurrentTime = tick()
+    local LastPos = LastPositions[Player]
+    local LastVel = PlayerVelocities[Player]
+    local LastTime = LastCheckTime[Player] or CurrentTime
+    
+    if LastPos and LastVel then
+        local deltaTime = CurrentTime - LastTime
+        local speed = CurrentVel.Magnitude
+        local distanceMoved = (CurrentPos - LastPos).Magnitude
+        
+        if speed > Settings.AntiFling.DetectionSpeed or distanceMoved > Settings.AntiFling.DetectionDistance then
+            if Settings.AntiFling.TeleportBack and LastPos.Y > 0 then
+                RootPart.CFrame = CFrame.new(LastPos)
+                RootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                RootPart.Velocity = Vector3.new(0, 0, 0)
+                Humanoid.PlatformStand = false
+                return true
+            end
+        end
+    end
+    
+    LastPositions[Player] = CurrentPos
+    PlayerVelocities[Player] = CurrentVel
+    LastCheckTime[Player] = CurrentTime
+    return false
+end
+
+-- ==================== FLING FEATURE ====================
+local function FlingPlayer(TargetPlayer, Power)
+    if not TargetPlayer or TargetPlayer == LocalPlayer then return end
+    
+    local Character = TargetPlayer.Character
+    if not Character then return end
+    
+    local RootPart = Character:FindFirstChild("HumanoidRootPart")
+    local Humanoid = Character:FindFirstChild("Humanoid")
+    
+    if RootPart and Humanoid and Humanoid.Health > 0 then
+        local direction
+        if Settings.Fling.RandomDirection then
+            direction = Vector3.new(
+                (math.random() - 0.5) * 2,
+                1.2 + math.random() * 0.6,
+                (math.random() - 0.5) * 2
+            ).Unit
+        else
+            direction = Vector3.new(0, 1.5, 0.5).Unit
+        end
+        
+        local velocity = direction * Power
+        RootPart.AssemblyLinearVelocity = velocity
+        RootPart.Velocity = velocity
+        
+        local bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.MaxForce = Vector3.new(1e8, 1e8, 1e8)
+        bodyVelocity.Velocity = velocity
+        bodyVelocity.P = 1e5
+        bodyVelocity.Parent = RootPart
+        
+        Humanoid.PlatformStand = true
+        
+        task.delay(0.5, function()
+            if bodyVelocity then bodyVelocity:Destroy() end
+            if Humanoid then Humanoid.PlatformStand = false end
+        end)
+    end
+end
+
+-- ==================== AIMBOT ====================
+local function GetAimPosition(TargetPlayer)
+    if not TargetPlayer then return nil end
+    local Character = TargetPlayer.Character
+    if not Character then return nil end
+    
+    local aimPart = Character:FindFirstChild(Settings.Aimbot.AimPart)
+    if not aimPart then
+        aimPart = Character:FindFirstChild("HumanoidRootPart")
+    end
+    if not aimPart then return nil end
+    
+    return aimPart.Position
+end
+
+local function IsInFOV(HeadPos)
+    if not Settings.Aimbot.FOV or Settings.Aimbot.FOV >= 360 then return true end
+    
+    local cameraPos = Camera.CFrame.Position
+    local directionToTarget = (HeadPos - cameraPos).Unit
+    local cameraDirection = Camera.CFrame.LookVector
+    
+    local angle = math.deg(math.acos(directionToTarget:Dot(cameraDirection)))
+    return angle <= (Settings.Aimbot.FOV / 2)
+end
+
+local function DoAimbot()
+    if not Settings.Aimbot.Enabled then return end
+    
+    local target
+    if Settings.Aimbot.OnlyOnMurderer then
+        target = GetMurderer()
+    else
+        for Player, role in pairs(PlayerRoles) do
+            if role == "Murderer" then
+                target = Player
+                break
+            end
+        end
+    end
+    
+    if not target then return end
+    
+    local targetPos = GetAimPosition(target)
+    if not targetPos then return end
+    
+    if not IsInFOV(targetPos) then return end
+    
+    local screenPos, onScreen = Camera:WorldToViewportPoint(targetPos)
+    if not onScreen then return end
+    
+    local currentCFrame = Camera.CFrame
+    local directionToTarget = (targetPos - currentCFrame.Position).Unit
+    local targetCFrame = CFrame.lookAt(currentCFrame.Position, currentCFrame.Position + directionToTarget)
+    
+    local smoothCFrame = currentCFrame:Lerp(targetCFrame, Settings.Aimbot.Smoothness)
+    Camera.CFrame = smoothCFrame
+end
+
+-- ==================== ESP (BOXES + TEXT) ====================
+local Boxes = {}
+local TextLabels = {}
+local TraceLines = {}
+local RoleColors = {
+    Murderer = Color3.new(1, 0, 0),
+    Sheriff = Color3.new(0, 0.4, 1),
+    Innocent = Color3.new(0, 1, 0)
+}
+
+local function WorldToViewport(WorldPos)
+    local vec, onScreen = Camera:WorldToViewportPoint(WorldPos)
+    return Vector2.new(vec.X, vec.Y), onScreen
+end
+
+local function CreateESPForPlayer(Player)
+    if Player == LocalPlayer then return end
+    
+    local box = Drawing.new("Square")
+    box.Thickness = Settings.ESP.BoxThickness
+    box.Visible = false
+    box.Filled = false
+    box.Color = RoleColors.Innocent
+    Boxes[Player] = box
+    
+    local text = Drawing.new("Text")
+    text.Size = Settings.ESP.TextSize
+    text.Center = true
+    text.Visible = false
+    text.Color = RoleColors.Innocent
+    text.Outline = true
+    text.OutlineColor = Color3.new(0, 0, 0)
+    TextLabels[Player] = text
+    
+    local trace = Drawing.new("Line")
+    trace.Thickness = Settings.Trace.Thickness
+    trace.Visible = false
+    trace.Color = Settings.Trace.Color
+    TraceLines[Player] = trace
+end
+
+local function RemoveESP(Player)
+    if Boxes[Player] then
+        Boxes[Player]:Remove()
+        Boxes[Player] = nil
+    end
+    if TextLabels[Player] then
+        TextLabels[Player]:Remove()
+        TextLabels[Player] = nil
+    end
+    if TraceLines[Player] then
+        TraceLines[Player]:Remove()
+        TraceLines[Player] = nil
+    end
+end
+
+local function UpdateESP()
+    if not Settings.ESP.Enabled then
+        for _, box in pairs(Boxes) do if box then box.Visible = false end end
+        for _, text in pairs(TextLabels) do if text then text.Visible = false end end
+        for _, trace in pairs(TraceLines) do if trace then trace.Visible = false end end
+        return
+    end
+    
+    UpdateAllRoles()
+    
+    for _, Player in ipairs(Players:GetPlayers()) do
+        if Player ~= LocalPlayer then
+            if not Boxes[Player] then
+                CreateESPForPlayer(Player)
+            end
+            
+            CheckAntiFling(Player)
+            
+            local box = Boxes[Player]
+            local text = TextLabels[Player]
+            local trace = TraceLines[Player]
+            local Character = Player.Character
+            local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
+            
+            if box and text and trace and RootPart and Character then
+                local role = PlayerRoles[Player] or "Innocent"
+                local roleColor = RoleColors[role]
+                local roleSymbol = role == "Murderer" and "🔪 " or (role == "Sheriff" and "⭐ " or "👤 ")
+                local distance = (Camera.CFrame.Position - RootPart.Position).Magnitude
+                
+                box.Color = roleColor
+                text.Color = roleColor
+                text.Text = roleSymbol .. Player.Name .. " [" .. role .. "] " .. math.floor(distance) .. "m"
+                
+                if distance <= Settings.ESP.MaxDistance then
+                    local Humanoid = Character:FindFirstChild("Humanoid")
+                    if Humanoid and Humanoid.Health > 0 then
+                        local Head = Character:FindFirstChild("Head")
+                        if Head then
+                            local headScreen, headOn = WorldToViewport(Head.Position)
+                            local footScreen, footOn = WorldToViewport(RootPart.Position - Vector3.new(0, 3, 0))
+                            
+                            if headOn and footOn then
+                                local height = footScreen.Y - headScreen.Y
+                                local width = height * 0.5
+                                
+                                box.Size = Vector2.new(width, height)
+                                box.Position = Vector2.new(headScreen.X - width/2, headScreen.Y)
+                                box.Visible = true
+                                
+                                text.Position = Vector2.new(headScreen.X, headScreen.Y - 18)
+                                text.Visible = true
+                            else
+                                box.Visible = false
+                                text.Visible = false
+                            end
+                        end
+                    else
+                        box.Visible = false
+                        text.Visible = false
+                    end
+                else
+                    box.Visible = false
+                    text.Visible = false
+                end
+                
+                -- Trace Line
+                if Settings.Trace.Enabled then
+                    local screenPos, onScreen = WorldToViewport(RootPart.Position)
+                    if onScreen then
+                        local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                        trace.From = center
+                        trace.To = Vector2.new(screenPos.X, screenPos.Y)
+                        trace.Color = roleColor
+                        trace.Visible = true
+                    else
+                        trace.Visible = false
+                    end
+                else
+                    trace.Visible = false
+                end
+            else
+                if box then box.Visible = false end
+                if text then text.Visible =     local Character = Player.Character
     if not Character then return "Innocent" end
     
     -- 1. Kontrol: Elindaki esya (bicak = murderer, tabanca = sheriff)
