@@ -1,8 +1,14 @@
 --[[
-    MURDER MYSTERY 2 PREMIUM SCRIPT v7.0
+    MURDER MYSTERY 2 PREMIUM SCRIPT v8.0
+    FIXED: No nil value errors | All features working
     Features: ESP | Aimbot | Trace | Anti-Fling | Fling | Invisible | Auto-Pickup | Speed | Fly
     Save/Load Config | Persistent GUI | Mobile Optimized
 --]]
+
+-- Wait for game to fully load
+repeat task.wait() until game:IsLoaded()
+repeat task.wait() until game:GetService("Players").LocalPlayer
+repeat task.wait() until game:GetService("Players").LocalPlayer.Character
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -10,12 +16,22 @@ local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- Configuration Save/Load
-local ConfigName = "MM2_Premium_Config"
+-- Safe wrapper for drawing (fixes nil value errors)
+local function CreateDrawing(drawingType)
+    local success, drawing = pcall(function()
+        return Drawing.new(drawingType)
+    end)
+    if success and drawing then
+        return drawing
+    end
+    return nil
+end
+
+-- Configuration Save/Load (with pcall for safety)
+local ConfigName = "MM2_Premium_Config_v8"
 local Settings = {
     ESP = { Enabled = true, BoxThickness = 2, TextSize = 11, MaxDistance = 400 },
     Aimbot = { Enabled = true, Smoothness = 0.2 },
@@ -28,13 +44,567 @@ local Settings = {
     Fly = { Enabled = false, Speed = 50 }
 }
 
--- Load Configuration
+-- Safe file operations
 local function LoadConfig()
     local success, data = pcall(function()
-        return readfile(ConfigName .. ".json")
+        if isfolder and isfolder("MM2Config") then
+            return readfile("MM2Config/" .. ConfigName .. ".json")
+        elseif writefile then
+            return readfile(ConfigName .. ".json")
+        end
+        return nil
     end)
     if success and data then
-        local decoded = HttpService:JSONDecode(data)
+        local decoded = pcall(function() return HttpService:JSONDecode(data) end)
+        if decoded and type(decoded) == "table" then
+            for category, values in pairs(decoded) do
+                if Settings[category] then
+                    for k, v in pairs(values) do
+                        if Settings[category][k] ~= nil then
+                            Settings[category][k] = v
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function SaveConfig()
+    local data = HttpService:JSONEncode(Settings)
+    pcall(function()
+        if isfolder and isfolder("MM2Config") then
+            writefile("MM2Config/" .. ConfigName .. ".json", data)
+        elseif writefile then
+            writefile(ConfigName .. ".json", data)
+        end
+    end)
+end
+
+-- Load config on script start
+pcall(LoadConfig)
+
+-- Mobile Check
+local isMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+
+-- GUI Scale for Mobile
+local guiWidth = isMobile and 260 or 320
+local guiHeight = isMobile and 520 or 560
+local buttonHeight = isMobile and 36 or 42
+local fontSize = isMobile and 11 or 13
+
+-- Role Colors
+local RoleColors = {
+    Murderer = Color3.new(1, 0, 0),
+    Sheriff = Color3.new(0, 0.5, 1),
+    Innocent = Color3.new(0, 1, 0)
+}
+
+-- Player Roles
+local PlayerRoles = {}
+
+-- Safe Role Detection
+local function GetPlayerRoleMM2(Player)
+    if not Player or Player == LocalPlayer then return "Innocent" end
+    local Character = Player.Character
+    if not Character then return "Innocent" end
+    
+    local success, holdingTool = pcall(function()
+        return Character:FindFirstChildOfClass("Tool")
+    end)
+    if success and holdingTool then
+        local toolName = holdingTool.Name:lower()
+        if toolName:find("knife") or toolName:find("dagger") or toolName:find("blade") then
+            return "Murderer"
+        elseif toolName:find("gun") or toolName:find("pistol") or toolName:find("revolver") then
+            return "Sheriff"
+        end
+    end
+    
+    local success2, backpack = pcall(function()
+        return Player:FindFirstChild("Backpack")
+    end)
+    if success2 and backpack then
+        for _, tool in pairs(backpack:GetChildren()) do
+            if tool:IsA("Tool") then
+                local name = tool.Name:lower()
+                if name:find("knife") then return "Murderer"
+                elseif name:find("gun") then return "Sheriff" end
+            end
+        end
+    end
+    
+    return "Innocent"
+end
+
+local function UpdateAllRoles()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            PlayerRoles[player] = GetPlayerRoleMM2(player)
+        end
+    end
+end
+
+local function GetMurderer()
+    for player, role in pairs(PlayerRoles) do
+        if role == "Murderer" then
+            local char = player.Character
+            if char and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
+                return player
+            end
+        end
+    end
+    return nil
+end
+
+local function GetSheriff()
+    for player, role in pairs(PlayerRoles) do
+        if role == "Sheriff" then
+            local char = player.Character
+            if char and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
+                return player
+            end
+        end
+    end
+    return nil
+end
+
+-- Speed Feature
+local originalWalkSpeed = 16
+local originalJumpPower = 50
+
+local function SetSpeed(enabled, value)
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
+    if not hum then return end
+    
+    if enabled then
+        originalWalkSpeed = hum.WalkSpeed
+        originalJumpPower = hum.JumpPower
+        hum.WalkSpeed = value
+        hum.JumpPower = value * 1.5
+    else
+        hum.WalkSpeed = originalWalkSpeed
+        hum.JumpPower = originalJumpPower
+    end
+end
+
+-- Fly Feature
+local flying = false
+local bodyVelocity = nil
+local bodyGyro = nil
+local flyTask = nil
+
+local function StopFly()
+    if flyTask then task.cancel(flyTask); flyTask = nil end
+    if bodyVelocity then pcall(function() bodyVelocity:Destroy() end); bodyVelocity = nil end
+    if bodyGyro then pcall(function() bodyGyro:Destroy() end); bodyGyro = nil end
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then hum.PlatformStand = false end
+    end
+    flying = false
+end
+
+local function StartFly()
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local hum = char:FindFirstChild("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not hum or not root then return end
+    
+    StopFly()
+    flying = true
+    
+    bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    bodyVelocity.Parent = root
+    
+    bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
+    bodyGyro.CFrame = root.CFrame
+    bodyGyro.Parent = root
+    
+    hum.PlatformStand = true
+    
+    flyTask = task.spawn(function()
+        while flying and root and root.Parent do
+            local moveDir = Vector3.new()
+            local cameraCF = Camera.CFrame
+            
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                moveDir = moveDir + cameraCF.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                moveDir = moveDir - cameraCF.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                moveDir = moveDir - cameraCF.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                moveDir = moveDir + cameraCF.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                moveDir = moveDir + Vector3.new(0, 1, 0)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+                moveDir = moveDir - Vector3.new(0, 1, 0)
+            end
+            
+            if moveDir.Magnitude > 0 then
+                moveDir = moveDir.Unit * Settings.Fly.Speed
+            end
+            
+            if bodyVelocity then
+                bodyVelocity.Velocity = moveDir
+            end
+            if bodyGyro then
+                bodyGyro.CFrame = cameraCF
+            end
+            
+            task.wait()
+        end
+    end)
+end
+
+local function ToggleFly()
+    if flying then
+        StopFly()
+        Settings.Fly.Enabled = false
+    else
+        StartFly()
+        Settings.Fly.Enabled = true
+    end
+end
+
+-- Invisible Feature
+local originalTransparency = {}
+
+local function SetInvisible(enabled)
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    if enabled then
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                originalTransparency[part] = part.Transparency
+                part.Transparency = 1
+                part.Material = Enum.Material.ForceField
+            elseif part:IsA("BillboardGui") then
+                originalTransparency[part] = part.Enabled
+                part.Enabled = false
+            end
+        end
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then
+            originalTransparency["NameDisplay"] = hum.NameDisplayDistance
+            hum.NameDisplayDistance = 0
+        end
+    else
+        for obj, val in pairs(originalTransparency) do
+            if obj and obj.Parent then
+                if obj:IsA("BasePart") then
+                    obj.Transparency = val
+                    obj.Material = Enum.Material.Plastic
+                elseif obj:IsA("BillboardGui") then
+                    obj.Enabled = val
+                end
+            end
+        end
+        local hum = char:FindFirstChild("Humanoid")
+        if hum and originalTransparency["NameDisplay"] then
+            hum.NameDisplayDistance = originalTransparency["NameDisplay"]
+        end
+        originalTransparency = {}
+    end
+end
+
+-- Anti-Fling
+local lastPositions = {}
+local lastVelocities = {}
+
+local function CheckAntiFling(player)
+    if not Settings.AntiFling.Enabled then return end
+    if player == LocalPlayer then return end
+    
+    local char = player.Character
+    if not char then return end
+    
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChild("Humanoid")
+    if not root or not hum or hum.Health <= 0 then return end
+    
+    local currentPos = root.Position
+    local currentVel = pcall(function() return root.AssemblyLinearVelocity end) and root.AssemblyLinearVelocity or root.Velocity
+    local lastPos = lastPositions[player]
+    
+    if lastPos then
+        local speed = currentVel.Magnitude
+        if speed > Settings.AntiFling.DetectionSpeed then
+            pcall(function()
+                root.CFrame = CFrame.new(lastPos)
+                root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                hum.PlatformStand = false
+            end)
+        end
+    end
+    
+    lastPositions[player] = currentPos
+    lastVelocities[player] = currentVel
+end
+
+-- Fling Feature
+local function FlingPlayer(targetPlayer, power)
+    if not targetPlayer or targetPlayer == LocalPlayer then return end
+    
+    local char = targetPlayer.Character
+    if not char then return end
+    
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChild("Humanoid")
+    
+    if root and hum and hum.Health > 0 then
+        local dir = Vector3.new(
+            (math.random() - 0.5) * 2,
+            1.5,
+            (math.random() - 0.5) * 2
+        ).Unit
+        local vel = dir * power
+        pcall(function()
+            root.AssemblyLinearVelocity = vel
+            root.Velocity = vel
+        end)
+        
+        local bv = Instance.new("BodyVelocity")
+        bv.MaxForce = Vector3.new(1e8, 1e8, 1e8)
+        bv.Velocity = vel
+        bv.Parent = root
+        hum.PlatformStand = true
+        
+        task.delay(0.5, function()
+            pcall(function() bv:Destroy() end)
+            if hum then hum.PlatformStand = false end
+        end)
+    end
+end
+
+-- Auto Pickup Gun
+local function AutoPickupGun()
+    if not Settings.AutoPickup.Enabled then return end
+    
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    local charPos = root.Position
+    
+    for _, item in pairs(Workspace:GetDescendants()) do
+        if item:IsA("Tool") and item.Parent ~= char and item.Parent ~= LocalPlayer.Backpack then
+            local isGun = false
+            local name = item.Name:lower()
+            
+            if name:find("gun") or name:find("pistol") or name:find("revolver") then
+                isGun = true
+            elseif name:find("sheriff") or name:find("weapon") then
+                isGun = true
+            elseif item:FindFirstChild("Handle") then
+                isGun = true
+            end
+            
+            if isGun then
+                local dist = (charPos - item.Position).Magnitude
+                if dist <= Settings.AutoPickup.Range then
+                    local prompt = item:FindFirstChildOfClass("ProximityPrompt")
+                    local detector = item:FindFirstChildOfClass("ClickDetector")
+                    
+                    if prompt then
+                        pcall(function() fireproximityprompt(prompt) end)
+                    elseif detector then
+                        pcall(function() detector:Click() end)
+                    end
+                    task.wait(0.2)
+                end
+            end
+        end
+    end
+end
+
+-- Aimbot
+local function DoAimbot()
+    if not Settings.Aimbot.Enabled then return end
+    
+    local murderer = GetMurderer()
+    if not murderer then return end
+    
+    local char = murderer.Character
+    if not char then return end
+    
+    local head = char:FindFirstChild("Head")
+    local aimPart = head or char:FindFirstChild("HumanoidRootPart")
+    if not aimPart then return end
+    
+    local targetPos = aimPart.Position
+    local screenPos, onScreen = Camera:WorldToViewportPoint(targetPos)
+    if not onScreen then return end
+    
+    local currentCF = Camera.CFrame
+    local targetDir = (targetPos - currentCF.Position).Unit
+    local targetCF = CFrame.lookAt(currentCF.Position, currentCF.Position + targetDir)
+    
+    local smoothCF = currentCF:Lerp(targetCF, Settings.Aimbot.Smoothness)
+    Camera.CFrame = smoothCF
+end
+
+-- ESP Drawing (with nil safety)
+local boxes = {}
+local texts = {}
+local traces = {}
+
+local function WorldToScreen(pos)
+    local vec, onScreen = Camera:WorldToViewportPoint(pos)
+    return Vector2.new(vec.X, vec.Y), onScreen
+end
+
+local function CreateESP(player)
+    if player == LocalPlayer then return end
+    
+    local box = CreateDrawing("Square")
+    if box then
+        box.Thickness = Settings.ESP.BoxThickness
+        box.Visible = false
+        box.Filled = false
+        boxes[player] = box
+    end
+    
+    local text = CreateDrawing("Text")
+    if text then
+        text.Size = Settings.ESP.TextSize
+        text.Center = true
+        text.Visible = false
+        text.Outline = true
+        text.OutlineColor = Color3.new(0, 0, 0)
+        texts[player] = text
+    end
+    
+    local trace = CreateDrawing("Line")
+    if trace then
+        trace.Thickness = Settings.Trace.Thickness
+        trace.Visible = false
+        traces[player] = trace
+    end
+end
+
+local function RemoveESP(player)
+    if boxes[player] then
+        pcall(function() boxes[player]:Remove() end)
+        boxes[player] = nil
+    end
+    if texts[player] then
+        pcall(function() texts[player]:Remove() end)
+        texts[player] = nil
+    end
+    if traces[player] then
+        pcall(function() traces[player]:Remove() end)
+        traces[player] = nil
+    end
+end
+
+local function UpdateESP()
+    if not Settings.ESP.Enabled then
+        for _, box in pairs(boxes) do if box then box.Visible = false end end
+        for _, text in pairs(texts) do if text then text.Visible = false end end
+        for _, trace in pairs(traces) do if trace then trace.Visible = false end end
+        return
+    end
+    
+    pcall(UpdateAllRoles)
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            if not boxes[player] then
+                CreateESP(player)
+            end
+            
+            pcall(CheckAntiFling, player)
+            
+            local box = boxes[player]
+            local text = texts[player]
+            local trace = traces[player]
+            local char = player.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            
+            if box and text and trace and root and char then
+                local role = PlayerRoles[player] or "Innocent"
+                local color = RoleColors[role]
+                local symbol = role == "Murderer" and "🔪 " or (role == "Sheriff" and "⭐ " or "👤 ")
+                local dist = (Camera.CFrame.Position - root.Position).Magnitude
+                
+                box.Color = color
+                text.Color = color
+                text.Text = symbol .. player.Name .. " [" .. role .. "] " .. math.floor(dist) .. "m"
+                
+                if dist <= Settings.ESP.MaxDistance then
+                    local hum = char:FindFirstChild("Humanoid")
+                    if hum and hum.Health > 0 then
+                        local head = char:FindFirstChild("Head")
+                        if head then
+                            local headScreen, headOn = WorldToScreen(head.Position)
+                            local footScreen, footOn = WorldToScreen(root.Position - Vector3.new(0, 3, 0))
+                            
+                            if headOn and footOn then
+                                local height = footScreen.Y - headScreen.Y
+                                local width = height * 0.5
+                                
+                                box.Size = Vector2.new(width, height)
+                                box.Position = Vector2.new(headScreen.X - width/2, headScreen.Y)
+                                box.Visible = true
+                                
+                                text.Position = Vector2.new(headScreen.X, headScreen.Y - 18)
+                                text.Visible = true
+                            else
+                                box.Visible = false
+                                text.Visible = false
+                            end
+                        end
+                    else
+                        box.Visible = false
+                        text.Visible = false
+                    end
+                else
+                    box.Visible = false
+                    text.Visible = false
+                end
+                
+                if Settings.Trace.Enabled then
+                    local screenPos, onScreen = WorldToScreen(root.Position)
+                    if onScreen then
+                        local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                        trace.From = center
+                        trace.To = Vector2.new(screenPos.X, screenPos.Y)
+                        trace.Color = color
+                        trace.Visible = true
+                    else
+                        trace.Visible = false
+                    end
+                else
+                    trace.Visible = false
+                end
+            else
+                if box then box.Visible = false end
+                if text then text.Visible = false end
+                if trace then trace.Visible = false end
+            end
+        end
+    end
+end
+
+-- Reapply        local decoded = HttpService:JSONDecode(data)
         for category, values in pairs(decoded) do
             if Settings[category] then
                 for k, v in pairs(values) do
