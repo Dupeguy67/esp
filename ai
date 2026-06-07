@@ -1,7 +1,6 @@
 --[[
-    MURDER MYSTERY 2 - ULTIMATE SCRIPT
-    Features: Wall ESP | Aimbot (Auto Shoot) | Speed | Invisible | Auto Pickup
-    Keybinds: Insert(ESP) | Home(Aimbot) | Delete(Invisible) | End(Auto Shoot)
+    MURDER MYSTERY 2 - RAYFIELD UI
+    Mobile Supported | Wall ESP | Aimbot | Auto Shoot | Speed | Invisible | Auto Pickup
     Works on Delta Executor
 --]]
 
@@ -14,21 +13,25 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local VirtualUser = game:GetService("VirtualUser")
+local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
-local Mouse = LocalPlayer:GetMouse()
+
+-- Mobile Check
+local isMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+local ScreenSize = Camera.ViewportSize
 
 -- Settings
-local ESPEnabled = true
-local AimbotEnabled = true
-local AutoShootEnabled = false
-local SpeedEnabled = false
-local SpeedValue = 55
-local InvisibleEnabled = false
-local AutoPickupEnabled = true
-local LockTarget = false
-local CurrentTarget = nil
+local Settings = {
+    ESP = true,
+    Aimbot = true,
+    AutoShoot = false,
+    LockTarget = false,
+    Speed = false,
+    SpeedValue = 55,
+    Invisible = false,
+    AutoPickup = true
+}
 
 -- Store original values
 local OriginalWalkSpeed = 16
@@ -37,11 +40,11 @@ local OriginalJumpPower = 50
 -- Role Data
 local PlayerRoles = {}
 
--- ESP Storage (Wall ESP)
+-- ESP Storage
 local ESPInstances = {}
 local WallESPFrames = {}
 
--- Track if ESP is being rebuilt
+local CurrentTarget = nil
 local isRebuildingESP = false
 
 -- Get Player Role Function
@@ -100,15 +103,15 @@ local function FindMurderer()
     return nil
 end
 
--- Get best target for aimbot
+-- Get best target
 local function GetBestTarget()
-    if LockTarget and CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild("Humanoid") and CurrentTarget.Character.Humanoid.Health > 0 then
+    if Settings.LockTarget and CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild("Humanoid") and CurrentTarget.Character.Humanoid.Health > 0 then
         return CurrentTarget
     end
     return FindMurderer()
 end
 
--- Create Wall ESP (Shows through walls using Highlight)
+-- Create Wall ESP (Highlight through walls)
 local function CreateWallESP(Player)
     if Player == LocalPlayer then return end
     if WallESPFrames[Player] then return end
@@ -119,9 +122,9 @@ local function CreateWallESP(Player)
     local Highlight = Instance.new("Highlight")
     Highlight.Name = "WallESP"
     Highlight.FillColor = Color3.fromRGB(255, 0, 0)
-    Highlight.FillTransparency = 0.6
+    Highlight.FillTransparency = 0.55
     Highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-    Highlight.OutlineTransparency = 0.3
+    Highlight.OutlineTransparency = 0.2
     Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     Highlight.Adornee = Character
     Highlight.Parent = Character
@@ -137,27 +140,7 @@ local function RemoveWallESP(Player)
     end
 end
 
--- Update Wall ESP Colors based on role
-local function UpdateWallESPColor(Player)
-    local Highlight = WallESPFrames[Player]
-    if not Highlight then return end
-    
-    local Role = PlayerRoles[Player] or "Innocent"
-    local Color = nil
-    
-    if Role == "Murderer" then
-        Color = Color3.fromRGB(255, 40, 40)
-    elseif Role == "Sheriff" then
-        Color = Color3.fromRGB(40, 120, 255)
-    else
-        Color = Color3.fromRGB(40, 255, 40)
-    end
-    
-    Highlight.FillColor = Color
-    Highlight.Enabled = ESPEnabled
-end
-
--- Create Billboard ESP (Name Tag)
+-- Create Billboard ESP
 local function CreateBillboardESP(Player)
     if Player == LocalPlayer then return end
     if ESPInstances[Player] then return end
@@ -168,7 +151,6 @@ local function CreateBillboardESP(Player)
     local Head = Character:FindFirstChild("Head")
     if not Head then return end
     
-    -- Clean existing
     for _, child in pairs(Head:GetChildren()) do
         if child.Name == "CleanESP" then
             child:Destroy()
@@ -177,7 +159,7 @@ local function CreateBillboardESP(Player)
     
     local Billboard = Instance.new("BillboardGui")
     Billboard.Name = "CleanESP"
-    Billboard.Size = UDim2.new(0, 220, 0, 55)
+    Billboard.Size = UDim2.new(0, isMobile and 180 or 220, 0, isMobile and 45 or 55)
     Billboard.StudsOffset = Vector3.new(0, 2.5, 0)
     Billboard.AlwaysOnTop = true
     Billboard.ResetOnSpawn = false
@@ -191,7 +173,7 @@ local function CreateBillboardESP(Player)
     MainFrame.Parent = Billboard
     
     local MainCorner = Instance.new("UICorner")
-    MainCorner.CornerRadius = UDim.new(0, 8)
+    MainCorner.CornerRadius = UDim.new(0, isMobile and 6 or 8)
     MainCorner.Parent = MainFrame
     
     local ColorBar = Instance.new("Frame")
@@ -205,41 +187,40 @@ local function CreateBillboardESP(Player)
     BarCorner.Parent = ColorBar
     
     local NameLabel = Instance.new("TextLabel")
-    NameLabel.Size = UDim2.new(1, -10, 0, 20)
-    NameLabel.Position = UDim2.new(0, 10, 0, 5)
+    NameLabel.Size = UDim2.new(1, -10, 0, isMobile and 16 or 20)
+    NameLabel.Position = UDim2.new(0, 10, 0, isMobile and 3 or 5)
     NameLabel.BackgroundTransparency = 1
     NameLabel.Text = Player.Name
     NameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    NameLabel.TextSize = 13
+    NameLabel.TextSize = isMobile and 11 or 13
     NameLabel.Font = Enum.Font.GothamBold
     NameLabel.TextXAlignment = Enum.TextXAlignment.Left
     NameLabel.Parent = MainFrame
     
     local RoleLabel = Instance.new("TextLabel")
-    RoleLabel.Size = UDim2.new(1, -10, 0, 18)
-    RoleLabel.Position = UDim2.new(0, 10, 0, 28)
+    RoleLabel.Size = UDim2.new(1, -10, 0, isMobile and 14 or 18)
+    RoleLabel.Position = UDim2.new(0, 10, 0, isMobile and 22 or 28)
     RoleLabel.BackgroundTransparency = 1
     RoleLabel.Text = "Innocent"
     RoleLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-    RoleLabel.TextSize = 11
+    RoleLabel.TextSize = isMobile and 10 or 11
     RoleLabel.Font = Enum.Font.Gotham
     RoleLabel.TextXAlignment = Enum.TextXAlignment.Left
     RoleLabel.Parent = MainFrame
     
     local DistanceLabel = Instance.new("TextLabel")
-    DistanceLabel.Size = UDim2.new(1, -10, 0, 16)
-    DistanceLabel.Position = UDim2.new(0, 10, 0, 48)
+    DistanceLabel.Size = UDim2.new(1, -10, 0, isMobile and 12 or 16)
+    DistanceLabel.Position = UDim2.new(0, 10, 0, isMobile and 38 or 48)
     DistanceLabel.BackgroundTransparency = 1
     DistanceLabel.Text = "0m"
     DistanceLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
-    DistanceLabel.TextSize = 9
+    DistanceLabel.TextSize = isMobile and 8 or 9
     DistanceLabel.Font = Enum.Font.Gotham
     DistanceLabel.TextXAlignment = Enum.TextXAlignment.Left
     DistanceLabel.Parent = MainFrame
     
     ESPInstances[Player] = {
         Billboard = Billboard,
-        MainFrame = MainFrame,
         ColorBar = ColorBar,
         NameLabel = NameLabel,
         RoleLabel = RoleLabel,
@@ -263,7 +244,7 @@ local function RemoveAllESP(Player)
     RemoveWallESP(Player)
 end
 
--- Rebuild ALL ESP
+-- Rebuild all ESP
 local function RebuildAllESP()
     if isRebuildingESP then return end
     isRebuildingESP = true
@@ -296,7 +277,6 @@ end
 
 -- Update ESP Display
 local function UpdateESPDisplay()
-    -- Update Billboard ESP
     for Player, Data in pairs(ESPInstances) do
         local Role = PlayerRoles[Player] or "Innocent"
         local RoleColor = nil
@@ -337,22 +317,21 @@ local function UpdateESPDisplay()
                 local LocalRoot = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                 if LocalRoot then
                     local Distance = (LocalRoot.Position - RootPart.Position).Magnitude
-                    Data.DistanceLabel.Text = math.floor(Distance) .. " meters"
+                    Data.DistanceLabel.Text = math.floor(Distance) .. "m"
                 end
             end
         end
         
         if Data.Billboard then
-            Data.Billboard.Enabled = ESPEnabled
+            Data.Billboard.Enabled = Settings.ESP
         end
     end
     
-    -- Update Wall ESP colors
     for Player, Highlight in pairs(WallESPFrames) do
         local Role = PlayerRoles[Player] or "Innocent"
         local Color = Role == "Murderer" and Color3.fromRGB(255, 40, 40) or (Role == "Sheriff" and Color3.fromRGB(40, 120, 255) or Color3.fromRGB(40, 255, 40))
         Highlight.FillColor = Color
-        Highlight.Enabled = ESPEnabled
+        Highlight.Enabled = Settings.ESP
     end
 end
 
@@ -360,7 +339,6 @@ end
 local function SetSpeed(Enabled, Value)
     local Character = LocalPlayer.Character
     if not Character then return end
-    
     local Humanoid = Character:FindFirstChild("Humanoid")
     if not Humanoid then return end
     
@@ -368,7 +346,7 @@ local function SetSpeed(Enabled, Value)
         OriginalWalkSpeed = Humanoid.WalkSpeed
         OriginalJumpPower = Humanoid.JumpPower
         Humanoid.WalkSpeed = Value
-        Humanoid.JumpPower = Value * 1.5
+        Humanoid.JumpPower = Value * 1.4
     else
         Humanoid.WalkSpeed = OriginalWalkSpeed
         Humanoid.JumpPower = OriginalJumpPower
@@ -417,9 +395,9 @@ local function SetInvisible(Enabled)
     end
 end
 
--- Auto Pickup Gun
+-- Auto Pickup
 local function AutoPickupWeapons()
-    if not AutoPickupEnabled then return end
+    if not Settings.AutoPickup then return end
     
     local Character = LocalPlayer.Character
     if not Character then return end
@@ -431,7 +409,6 @@ local function AutoPickupWeapons()
     
     for _, Object in pairs(Workspace:GetDescendants()) do
         if Object:IsA("Tool") and Object.Parent ~= Character and Object.Parent ~= LocalPlayer.Backpack then
-            
             local ObjectName = Object.Name:lower()
             local IsGun = ObjectName:find("gun") or ObjectName:find("pistol") or ObjectName:find("revolver") or ObjectName:find("sheriff") or Object:FindFirstChild("Handle")
             
@@ -454,7 +431,7 @@ local function AutoPickupWeapons()
     end
 end
 
--- Aimbot + Auto Shoot
+-- Shoot Murderer
 local function ShootMurderer()
     local Target = GetBestTarget()
     if not Target then return end
@@ -465,24 +442,28 @@ local function ShootMurderer()
     local AimPart = Character:FindFirstChild("Head") or Character:FindFirstChild("HumanoidRootPart")
     if not AimPart then return end
     
-    -- Move camera to target
     local TargetPosition = AimPart.Position
     local CurrentCFrame = Camera.CFrame
     local Direction = (TargetPosition - CurrentCFrame.Position).Unit
     local TargetCFrame = CFrame.lookAt(CurrentCFrame.Position, CurrentCFrame.Position + Direction)
     Camera.CFrame = TargetCFrame
     
-    -- Click to shoot
     task.wait(0.05)
+    
     pcall(function()
-        VirtualUser:ClickButton1(Vector2.new(Mouse.X, Mouse.Y))
+        local VirtualUser = game:GetService("VirtualUser")
+        VirtualUser:ClickButton1(Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2))
     end)
-    Mouse1Click()
+    
+    pcall(function()
+        local Mouse = LocalPlayer:GetMouse()
+        Mouse1Click()
+    end)
 end
 
 -- Continuous Aimbot
 local function RunAimbot()
-    if not AimbotEnabled then return end
+    if not Settings.Aimbot then return end
     
     local Target = GetBestTarget()
     if not Target then return end
@@ -501,103 +482,183 @@ local function RunAimbot()
     Camera.CFrame = CurrentCFrame:Lerp(TargetCFrame, 0.2)
 end
 
--- Create GUI
+-- RAYFIELD UI STYLE (Mobile Optimized)
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "MM2_Script_GUI"
+ScreenGui.Name = "RayfieldUI"
 ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
--- Main Frame
-local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 340, 0, 520)
-MainFrame.Position = UDim2.new(0.5, -170, 0.5, -260)
-MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 20)
-MainFrame.BackgroundTransparency = 0.08
-MainFrame.BorderSizePixel = 0
-MainFrame.ClipsDescendants = true
-MainFrame.Parent = ScreenGui
+local UICornerRadius = isMobile and 12 or 14
+local ButtonHeight = isMobile and 50 or 45
+local FontSize = isMobile and 13 or 14
+local SmallFontSize = isMobile and 11 or 12
 
-local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 14)
-MainCorner.Parent = MainFrame
+-- Main Container
+local MainContainer = Instance.new("Frame")
+MainContainer.Size = UDim2.new(0, isMobile and 320 or 360, 0, isMobile and 550 or 600)
+MainContainer.Position = UDim2.new(0.5, -(isMobile and 160 or 180), 0.5, -(isMobile and 275 or 300))
+MainContainer.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
+MainContainer.BackgroundTransparency = 0.05
+MainContainer.BorderSizePixel = 0
+MainContainer.ClipsDescendants = true
+MainContainer.Parent = ScreenGui
 
--- Header
-local HeaderFrame = Instance.new("Frame")
-HeaderFrame.Size = UDim2.new(1, 0, 0, 50)
-HeaderFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 45)
-HeaderFrame.BackgroundTransparency = 0.2
-HeaderFrame.BorderSizePixel = 0
-HeaderFrame.Parent = MainFrame
+local ContainerCorner = Instance.new("UICorner")
+ContainerCorner.CornerRadius = UDim.new(0, UICornerRadius)
+ContainerCorner.Parent = MainContainer
 
-local HeaderCorner = Instance.new("UICorner")
-HeaderCorner.CornerRadius = UDim.new(0, 14)
-HeaderCorner.Parent = HeaderFrame
+-- Top Bar
+local TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1, 0, 0, isMobile and 50 or 55)
+TopBar.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+TopBar.BackgroundTransparency = 0.3
+TopBar.BorderSizePixel = 0
+TopBar.Parent = MainContainer
 
-local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(1, -70, 1, 0)
-TitleLabel.Position = UDim2.new(0, 15, 0, 0)
-TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "MM2 ULTIMATE SCRIPT"
-TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-TitleLabel.TextSize = 15
-TitleLabel.Font = Enum.Font.GothamBold
-TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-TitleLabel.Parent = HeaderFrame
+local TopBarCorner = Instance.new("UICorner")
+TopBarCorner.CornerRadius = UDim.new(0, UICornerRadius)
+TopBarCorner.Parent = TopBar
 
-local MinimizeButton = Instance.new("TextButton")
-MinimizeButton.Size = UDim2.new(0, 35, 1, 0)
-MinimizeButton.Position = UDim2.new(1, -70, 0, 0)
-MinimizeButton.BackgroundTransparency = 1
-MinimizeButton.Text = "−"
-MinimizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinimizeButton.TextSize = 24
-MinimizeButton.Font = Enum.Font.GothamBold
-MinimizeButton.Parent = HeaderFrame
+-- Title
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -80, 1, 0)
+Title.Position = UDim2.new(0, 15, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "MM2 RAYFIELD UI"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = FontSize + 2
+Title.Font = Enum.Font.GothamBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = TopBar
 
-local CloseButton = Instance.new("TextButton")
-CloseButton.Size = UDim2.new(0, 35, 1, 0)
-CloseButton.Position = UDim2.new(1, -35, 0, 0)
-CloseButton.BackgroundTransparency = 1
-CloseButton.Text = "✕"
-CloseButton.TextColor3 = Color3.fromRGB(255, 80, 80)
-CloseButton.TextSize = 18
-CloseButton.Font = Enum.Font.GothamBold
-CloseButton.Parent = HeaderFrame
+-- Minimize Button
+local MinButton = Instance.new("TextButton")
+MinButton.Size = UDim2.new(0, 35, 1, 0)
+MinButton.Position = UDim2.new(1, -75, 0, 0)
+MinButton.BackgroundTransparency = 1
+MinButton.Text = "−"
+MinButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinButton.TextSize = FontSize + 8
+MinButton.Font = Enum.Font.GothamBold
+MinButton.Parent = TopBar
+
+-- Close Button
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 35, 1, 0)
+CloseBtn.Position = UDim2.new(1, -40, 0, 0)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 80, 80)
+CloseBtn.TextSize = FontSize + 2
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.Parent = TopBar
 
 -- Content Area
 local ContentArea = Instance.new("Frame")
-ContentArea.Size = UDim2.new(1, 0, 1, -50)
-ContentArea.Position = UDim2.new(0, 0, 0, 50)
+ContentArea.Size = UDim2.new(1, 0, 1, -(isMobile and 50 or 55))
+ContentArea.Position = UDim2.new(0, 0, 0, isMobile and 50 or 55)
 ContentArea.BackgroundTransparency = 1
-ContentArea.Parent = MainFrame
+ContentArea.Parent = MainContainer
 
-local ScrollArea = Instance.new("ScrollingFrame")
-ScrollArea.Size = UDim2.new(1, 0, 1, 0)
-ScrollArea.BackgroundTransparency = 1
-ScrollArea.ScrollBarThickness = 3
-ScrollArea.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 120)
-ScrollArea.Parent = ContentArea
+local ScrollFrame = Instance.new("ScrollingFrame")
+ScrollFrame.Size = UDim2.new(1, 0, 1, 0)
+ScrollFrame.BackgroundTransparency = 1
+ScrollFrame.ScrollBarThickness = isMobile and 2 or 3
+ScrollFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 120)
+ScrollFrame.Parent = ContentArea
 
-local UIList = Instance.new("UIListLayout")
-UIList.Padding = UDim.new(0, 10)
-UIList.HorizontalAlignment = Enum.HorizontalAlignment.Center
-UIList.Parent = ScrollArea
+local ScrollList = Instance.new("UIListLayout")
+ScrollList.Padding = UDim.new(0, isMobile and 8 or 10)
+ScrollList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+ScrollList.Parent = ScrollFrame
+
+-- Section Creator
+local function CreateSection(Title)
+    local Section = Instance.new("Frame")
+    Section.Size = UDim2.new(0, isMobile and 290 or 320, 0, 35)
+    Section.BackgroundTransparency = 1
+    Section.Parent = ScrollFrame
+    
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, 0, 1, 0)
+    Label.BackgroundTransparency = 1
+    Label.Text = Title
+    Label.TextColor3 = Color3.fromRGB(150, 150, 200)
+    Label.TextSize = SmallFontSize
+    Label.Font = Enum.Font.GothamBold
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Section
+    
+    return Section
+end
+
+-- Toggle Creator
+local function CreateToggle(Text, Default, Callback)
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0, isMobile and 290 or 320, 0, ButtonHeight)
+    Frame.BackgroundColor3 = Color3.fromRGB(25, 25, 38)
+    Frame.BackgroundTransparency = 0.2
+    Frame.Parent = ScrollFrame
+    
+    local FrameCorner = Instance.new("UICorner")
+    FrameCorner.CornerRadius = UDim.new(0, 8)
+    FrameCorner.Parent = Frame
+    
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0.7, 0, 1, 0)
+    Label.Position = UDim2.new(0, 15, 0, 0)
+    Label.BackgroundTransparency = 1
+    Label.Text = Text
+    Label.TextColor3 = Color3.fromRGB(220, 220, 255)
+    Label.TextSize = SmallFontSize
+    Label.Font = Enum.Font.Gotham
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Frame
+    
+    local ToggleBtn = Instance.new("TextButton")
+    ToggleBtn.Size = UDim2.new(0, isMobile and 50 or 55, 0, isMobile and 25 or 30)
+    ToggleBtn.Position = UDim2.new(1, -(isMobile and 60 or 65), 0.5, -(isMobile and 12.5 or 15))
+    ToggleBtn.BackgroundColor3 = Default and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(60, 60, 80)
+    ToggleBtn.Text = Default and "ON" or "OFF"
+    ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ToggleBtn.TextSize = SmallFontSize - 1
+    ToggleBtn.Font = Enum.Font.GothamBold
+    ToggleBtn.Parent = Frame
+    
+    local BtnCorner = Instance.new("UICorner")
+    BtnCorner.CornerRadius = UDim.new(0, 15)
+    BtnCorner.Parent = ToggleBtn
+    
+    local State = Default
+    
+    ToggleBtn.MouseButton1Click:Connect(function()
+        State = not State
+        ToggleBtn.BackgroundColor3 = State and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(60, 60, 80)
+        ToggleBtn.Text = State and "ON" or "OFF"
+        Callback(State)
+    end)
+    
+    return ToggleBtn, State
+end
 
 -- Button Creator
-local function CreateButton(Text, Color)
+local function CreateButton(Text, Color, Callback)
     local Button = Instance.new("TextButton")
-    Button.Size = UDim2.new(0, 300, 0, 45)
-    Button.BackgroundColor3 = Color or Color3.fromRGB(25, 25, 40)
+    Button.Size = UDim2.new(0, isMobile and 290 or 320, 0, ButtonHeight)
+    Button.BackgroundColor3 = Color or Color3.fromRGB(35, 35, 55)
     Button.BackgroundTransparency = 0.2
     Button.Text = Text
     Button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Button.TextSize = 14
+    Button.TextSize = SmallFontSize
     Button.Font = Enum.Font.GothamSemibold
-    Button.Parent = ScrollArea
+    Button.Parent = ScrollFrame
     
     local ButtonCorner = Instance.new("UICorner")
     ButtonCorner.CornerRadius = UDim.new(0, 8)
     ButtonCorner.Parent = Button
+    
+    Button.MouseButton1Click:Connect(Callback)
     
     return Button
 end
@@ -605,10 +666,10 @@ end
 -- Slider Creator
 local function CreateSlider(Name, Min, Max, Default, Callback)
     local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 300, 0, 60)
-    Frame.BackgroundColor3 = Color3.fromRGB(20, 20, 32)
-    Frame.BackgroundTransparency = 0.3
-    Frame.Parent = ScrollArea
+    Frame.Size = UDim2.new(0, isMobile and 290 or 320, 0, 65)
+    Frame.BackgroundColor3 = Color3.fromRGB(25, 25, 38)
+    Frame.BackgroundTransparency = 0.2
+    Frame.Parent = ScrollFrame
     
     local FrameCorner = Instance.new("UICorner")
     FrameCorner.CornerRadius = UDim.new(0, 8)
@@ -620,7 +681,7 @@ local function CreateSlider(Name, Min, Max, Default, Callback)
     Label.BackgroundTransparency = 1
     Label.Text = Name .. ": " .. tostring(Default)
     Label.TextColor3 = Color3.fromRGB(220, 220, 255)
-    Label.TextSize = 12
+    Label.TextSize = SmallFontSize - 1
     Label.Font = Enum.Font.Gotham
     Label.TextXAlignment = Enum.TextXAlignment.Left
     Label.Parent = Frame
@@ -649,29 +710,29 @@ local function CreateSlider(Name, Min, Max, Default, Callback)
     local Value = Default
     local Dragging = false
     
+    local function UpdateValue(Input)
+        local Percent = math.clamp((Input.Position.X - SliderBar.AbsolutePosition.X) / SliderBar.AbsoluteSize.X, 0, 1)
+        Value = math.floor(Min + (Max - Min) * Percent)
+        Fill.Size = UDim2.new(Percent, 0, 1, 0)
+        Label.Text = Name .. ": " .. tostring(Value)
+        Callback(Value)
+    end
+    
     SliderBar.InputBegan:Connect(function(Input)
-        if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if Input.UserInputType == Enum.UserInputType.Touch or Input.UserInputType == Enum.UserInputType.MouseButton1 then
             Dragging = true
-            local Percent = math.clamp((Input.Position.X - SliderBar.AbsolutePosition.X) / SliderBar.AbsoluteSize.X, 0, 1)
-            Value = math.floor(Min + (Max - Min) * Percent)
-            Fill.Size = UDim2.new(Percent, 0, 1, 0)
-            Label.Text = Name .. ": " .. tostring(Value)
-            Callback(Value)
+            UpdateValue(Input)
         end
     end)
     
     UserInputService.InputChanged:Connect(function(Input)
-        if Dragging and Input.UserInputType == Enum.UserInputType.MouseMovement then
-            local Percent = math.clamp((Input.Position.X - SliderBar.AbsolutePosition.X) / SliderBar.AbsoluteSize.X, 0, 1)
-            Value = math.floor(Min + (Max - Min) * Percent)
-            Fill.Size = UDim2.new(Percent, 0, 1, 0)
-            Label.Text = Name .. ": " .. tostring(Value)
-            Callback(Value)
+        if Dragging and (Input.UserInputType == Enum.UserInputType.Touch or Input.UserInputType == Enum.UserInputType.MouseMovement) then
+            UpdateValue(Input)
         end
     end)
     
     UserInputService.InputEnded:Connect(function(Input)
-        if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if Input.UserInputType == Enum.UserInputType.Touch or Input.UserInputType == Enum.UserInputType.MouseButton1 then
             Dragging = false
         end
     end)
@@ -679,106 +740,38 @@ local function CreateSlider(Name, Min, Max, Default, Callback)
     return Frame
 end
 
--- Badge Creator
-local function CreateBadge(Text, Color)
+-- Info Box
+local function CreateInfoBox(Text)
     local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 300, 0, 32)
-    Frame.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
-    Frame.BackgroundTransparency = 0.3
-    Frame.Parent = ScrollArea
+    Frame.Size = UDim2.new(0, isMobile and 290 or 320, 0, isMobile and 70 or 80)
+    Frame.BackgroundColor3 = Color3.fromRGB(25, 25, 38)
+    Frame.BackgroundTransparency = 0.2
+    Frame.Parent = ScrollFrame
     
     local FrameCorner = Instance.new("UICorner")
     FrameCorner.CornerRadius = UDim.new(0, 8)
     FrameCorner.Parent = Frame
     
     local Label = Instance.new("TextLabel")
-    Label.Size = UDim2.new(1, 0, 1, 0)
+    Label.Size = UDim2.new(1, -20, 1, 0)
+    Label.Position = UDim2.new(0, 10, 0, 0)
     Label.BackgroundTransparency = 1
     Label.Text = Text
-    Label.TextColor3 = Color
-    Label.TextSize = 11
+    Label.TextColor3 = Color3.fromRGB(180, 180, 220)
+    Label.TextSize = SmallFontSize - 1
     Label.Font = Enum.Font.Gotham
+    Label.TextWrapped = true
     Label.Parent = Frame
     
-    return Frame, Label
+    return Frame
 end
-
--- Create UI Elements
-local ESPButton = CreateButton("◉ WALL ESP [ON]", Color3.fromRGB(30, 30, 50))
-local AimbotButton = CreateButton("◉ AIM ASSIST [ON]", Color3.fromRGB(30, 30, 50))
-local AutoShootButton = CreateButton("🔫 AUTO SHOOT MURDERER [OFF]", Color3.fromRGB(40, 20, 20))
-local LockButton = CreateButton("🔒 LOCK TARGET [OFF]", Color3.fromRGB(30, 30, 50))
-local SpeedButton = CreateButton("◉ SPEED BOOST [OFF]", Color3.fromRGB(30, 30, 50))
-local InvisibleButton = CreateButton("◉ GHOST MODE [OFF]", Color3.fromRGB(30, 30, 50))
-local PickupButton = CreateButton("◉ AUTO COLLECT [ON]", Color3.fromRGB(30, 30, 50))
-
--- Speed Slider
-CreateSlider("⚡ SPEED VALUE", 16, 120, 55, function(Value)
-    SpeedValue = Value
-    if SpeedEnabled then
-        SetSpeed(true, Value)
-    end
-end)
-
--- Badges
-local _, ESPBadge = CreateBadge("WALL ESP: ACTIVE", Color3.fromRGB(0, 255, 0))
-local _, AimbotBadge = CreateBadge("AIMBOT: ACTIVE", Color3.fromRGB(0, 255, 0))
-local _, AutoShootBadge = CreateBadge("AUTO SHOOT: INACTIVE", Color3.fromRGB(255, 0, 0))
-local _, LockBadge = CreateBadge("TARGET LOCK: OFF", Color3.fromRGB(255, 0, 0))
-local _, SpeedBadge = CreateBadge("SPEED: INACTIVE", Color3.fromRGB(255, 0, 0))
-local _, InvisibleBadge = CreateBadge("GHOST: INACTIVE", Color3.fromRGB(255, 0, 0))
-local _, PickupBadge = CreateBadge("AUTO COLLECT: ACTIVE", Color3.fromRGB(0, 255, 0))
-
--- Legend Frame
-local LegendFrame = Instance.new("Frame")
-LegendFrame.Size = UDim2.new(0, 300, 0, 130)
-LegendFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
-LegendFrame.BackgroundTransparency = 0.3
-LegendFrame.Parent = ScrollArea
-
-local LegendCorner = Instance.new("UICorner")
-LegendCorner.CornerRadius = UDim.new(0, 8)
-LegendCorner.Parent = LegendFrame
-
-local LegendTitle = Instance.new("TextLabel")
-LegendTitle.Size = UDim2.new(1, 0, 0, 22)
-LegendTitle.Position = UDim2.new(0, 10, 0, 5)
-LegendTitle.BackgroundTransparency = 1
-LegendTitle.Text = "LEGEND"
-LegendTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-LegendTitle.TextSize = 13
-LegendTitle.Font = Enum.Font.GothamBold
-LegendTitle.TextXAlignment = Enum.TextXAlignment.Left
-LegendTitle.Parent = LegendFrame
-
-local function AddLegendItem(Text, Color, X, Y)
-    local Label = Instance.new("TextLabel")
-    Label.Size = UDim2.new(0, 95, 0, 20)
-    Label.Position = UDim2.new(0, X, 0, Y)
-    Label.BackgroundTransparency = 1
-    Label.Text = Text
-    Label.TextColor3 = Color
-    Label.TextSize = 10
-    Label.Font = Enum.Font.Gotham
-    Label.Parent = LegendFrame
-end
-
-AddLegendItem("🔪 MURDERER", Color3.fromRGB(255, 50, 50), 5, 35)
-AddLegendItem("⭐ SHERIFF", Color3.fromRGB(50, 120, 255), 105, 35)
-AddLegendItem("👤 INNOCENT", Color3.fromRGB(50, 255, 50), 205, 35)
-AddLegendItem("🎯 AIMBOT", Color3.fromRGB(255, 140, 40), 5, 60)
-AddLegendItem("🔫 AUTO SHOOT", Color3.fromRGB(255, 80, 80), 105, 60)
-AddLegendItem("🔒 LOCK TARGET", Color3.fromRGB(255, 200, 40), 205, 60)
-AddLegendItem("⚡ SPEED", Color3.fromRGB(255, 200, 40), 5, 85)
-AddLegendItem("👻 GHOST", Color3.fromRGB(200, 60, 200), 105, 85)
-AddLegendItem("🔫 AUTO PICKUP", Color3.fromRGB(200, 200, 40), 205, 85)
 
 -- FPS Display
 local FPSFrame = Instance.new("Frame")
-FPSFrame.Size = UDim2.new(0, 300, 0, 35)
-FPSFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
-FPSFrame.BackgroundTransparency = 0.3
-FPSFrame.Parent = ScrollArea
+FPSFrame.Size = UDim2.new(0, isMobile and 290 or 320, 0, 35)
+FPSFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 38)
+FPSFrame.BackgroundTransparency = 0.2
+FPSFrame.Parent = ScrollFrame
 
 local FPSCorner = Instance.new("UICorner")
 FPSCorner.CornerRadius = UDim.new(0, 8)
@@ -789,156 +782,99 @@ FPSLabel.Size = UDim2.new(1, 0, 1, 0)
 FPSLabel.BackgroundTransparency = 1
 FPSLabel.Text = "FPS: 60"
 FPSLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
-FPSLabel.TextSize = 13
+FPSLabel.TextSize = SmallFontSize
 FPSLabel.Font = Enum.Font.GothamBold
 FPSLabel.Parent = FPSFrame
 
--- Update Scroll Height
-task.spawn(function()
-    task.wait(0.1)
-    ScrollArea.CanvasSize = UDim2.new(0, 0, 0, 850)
-end)
-
--- GUI Logic
-local Minimized = false
-local FullHeight = 520
-local CompactHeight = 50
-
-MinimizeButton.MouseButton1Click:Connect(function()
-    Minimized = not Minimized
-    MainFrame.Size = UDim2.new(0, 340, 0, Minimized and CompactHeight or FullHeight)
-    ContentArea.Visible = not Minimized
-    MinimizeButton.Text = Minimized and "+" or "−"
-end)
-
-local GUIHidden = false
-CloseButton.MouseButton1Click:Connect(function()
-    GUIHidden = not GUIHidden
-    MainFrame.Visible = GUIHidden
-end)
-
--- Drag System
-local Dragging = false
-local DragStartPos, StartFramePos
-
-HeaderFrame.InputBegan:Connect(function(Input)
-    if Input.UserInputType == Enum.UserInputType.MouseButton1 then
-        Dragging = true
-        DragStartPos = Input.Position
-        StartFramePos = MainFrame.Position
-    end
-end)
-
-HeaderFrame.InputEnded:Connect(function()
-    Dragging = false
-end)
-
-UserInputService.InputChanged:Connect(function(Input)
-    if Dragging and Input.UserInputType == Enum.UserInputType.MouseMovement then
-        local Delta = Input.Position - DragStartPos
-        MainFrame.Position = UDim2.new(StartFramePos.X.Scale, StartFramePos.X.Offset + Delta.X, StartFramePos.Y.Scale, StartFramePos.Y.Offset + Delta.Y)
-    end
-end)
-
--- Button Actions
-ESPButton.MouseButton1Click:Connect(function()
-    ESPEnabled = not ESPEnabled
-    if ESPEnabled then
-        ESPButton.Text = "◉ WALL ESP [ON]"
-        ESPBadge.Text = "WALL ESP: ACTIVE"
-        ESPBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
+-- Build UI
+CreateSection("⚔️ COMBAT")
+local AimToggle, AimState = CreateToggle("Aim Assist (Aimbot)", Settings.Aimbot, function(v) Settings.Aimbot = v end)
+local AutoShootToggle, AutoShootState = CreateToggle("Auto Shoot Murderer", Settings.AutoShoot, function(v) Settings.AutoShoot = v end)
+local LockToggle, LockState = CreateToggle("Lock Target", Settings.LockTarget, function(v) 
+    Settings.LockTarget = v
+    if v then
+        CurrentTarget = FindMurderer()
     else
-        ESPButton.Text = "◉ WALL ESP [OFF]"
-        ESPBadge.Text = "WALL ESP: INACTIVE"
-        ESPBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
-    end
-    UpdateESPDisplay()
-end)
-
-AimbotButton.MouseButton1Click:Connect(function()
-    AimbotEnabled = not AimbotEnabled
-    if AimbotEnabled then
-        AimbotButton.Text = "◉ AIM ASSIST [ON]"
-        AimbotBadge.Text = "AIMBOT: ACTIVE"
-        AimbotBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
-    else
-        AimbotButton.Text = "◉ AIM ASSIST [OFF]"
-        AimbotBadge.Text = "AIMBOT: INACTIVE"
-        AimbotBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
-    end
-end)
-
-AutoShootButton.MouseButton1Click:Connect(function()
-    AutoShootEnabled = not AutoShootEnabled
-    if AutoShootEnabled then
-        AutoShootButton.Text = "🔫 AUTO SHOOT MURDERER [ON]"
-        AutoShootBadge.Text = "AUTO SHOOT: ACTIVE"
-        AutoShootBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
-    else
-        AutoShootButton.Text = "🔫 AUTO SHOOT MURDERER [OFF]"
-        AutoShootBadge.Text = "AUTO SHOOT: INACTIVE"
-        AutoShootBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
-    end
-end)
-
-LockButton.MouseButton1Click:Connect(function()
-    LockTarget = not LockTarget
-    if LockTarget then
-        LockButton.Text = "🔒 LOCK TARGET [ON]"
-        LockBadge.Text = "TARGET LOCK: ON"
-        LockBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
-        local murderer = FindMurderer()
-        if murderer then
-            CurrentTarget = murderer
-        end
-    else
-        LockButton.Text = "🔒 LOCK TARGET [OFF]"
-        LockBadge.Text = "TARGET LOCK: OFF"
-        LockBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
         CurrentTarget = nil
     end
 end)
 
-SpeedButton.MouseButton1Click:Connect(function()
-    SpeedEnabled = not SpeedEnabled
-    if SpeedEnabled then
-        SpeedButton.Text = "◉ SPEED BOOST [ON]"
-        SpeedBadge.Text = "SPEED: ACTIVE"
-        SpeedBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
-        SetSpeed(true, SpeedValue)
-    else
-        SpeedButton.Text = "◉ SPEED BOOST [OFF]"
-        SpeedBadge.Text = "SPEED: INACTIVE"
-        SpeedBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
-        SetSpeed(false, SpeedValue)
+CreateSection("👁️ VISUALS")
+local ESPToggle, ESPState = CreateToggle("Wall ESP (Through Walls)", Settings.ESP, function(v) 
+    Settings.ESP = v
+    UpdateESPDisplay()
+end)
+local InvToggle, InvState = CreateToggle("Ghost Mode (Invisible)", Settings.Invisible, function(v) 
+    Settings.Invisible = v
+    SetInvisible(v)
+end)
+
+CreateSection("⚡ MOVEMENT")
+local SpeedToggle, SpeedState = CreateToggle("Speed Boost", Settings.Speed, function(v) 
+    Settings.Speed = v
+    SetSpeed(v, Settings.SpeedValue)
+end)
+CreateSlider("Speed Value", 16, 120, Settings.SpeedValue, function(v)
+    Settings.SpeedValue = v
+    if Settings.Speed then
+        SetSpeed(true, v)
     end
 end)
 
-InvisibleButton.MouseButton1Click:Connect(function()
-    InvisibleEnabled = not InvisibleEnabled
-    if InvisibleEnabled then
-        InvisibleButton.Text = "◉ GHOST MODE [ON]"
-        InvisibleBadge.Text = "GHOST: ACTIVE"
-        InvisibleBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
-        SetInvisible(true)
-    else
-        InvisibleButton.Text = "◉ GHOST MODE [OFF]"
-        InvisibleBadge.Text = "GHOST: INACTIVE"
-        InvisibleBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
-        SetInvisible(false)
+CreateSection("🔫 UTILITY")
+local PickupToggle, PickupState = CreateToggle("Auto Collect Gun", Settings.AutoPickup, function(v) Settings.AutoPickup = v end)
+CreateButton("🔫 Shoot Murderer (Manual)", Color3.fromRGB(40, 30, 50), function() ShootMurderer() end)
+
+CreateSection("ℹ️ INFO")
+CreateInfoBox("Keybinds:\nINSERT - ESP | HOME - Aimbot | DELETE - Invisible\nEND - Shoot | PGUP - Auto Shoot | PGDN - Lock Target")
+
+-- Update canvas size
+task.spawn(function()
+    task.wait(0.1)
+    ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, ScrollList.AbsoluteContentSize.Y + 20)
+end)
+
+-- GUI Logic
+local Minimized = false
+local FullHeight = isMobile and 550 or 600
+local CompactHeight = 50
+
+MinButton.MouseButton1Click:Connect(function()
+    Minimized = not Minimized
+    local Tween = TweenService:Create(MainContainer, TweenInfo.new(0.25), {
+        Size = UDim2.new(0, isMobile and 320 or 360, 0, Minimized and CompactHeight or FullHeight)
+    })
+    Tween:Play()
+    ContentArea.Visible = not Minimized
+    MinButton.Text = Minimized and "+" or "−"
+end)
+
+local UIVisible = true
+CloseBtn.MouseButton1Click:Connect(function()
+    UIVisible = not UIVisible
+    MainContainer.Visible = UIVisible
+end)
+
+-- Drag System (Mobile & PC)
+local Dragging = false
+local DragStartPos, StartFramePos
+
+TopBar.InputBegan:Connect(function(Input)
+    if Input.UserInputType == Enum.UserInputType.Touch or Input.UserInputType == Enum.UserInputType.MouseButton1 then
+        Dragging = true
+        DragStartPos = Input.Position
+        StartFramePos = MainContainer.Position
     end
 end)
 
-PickupButton.MouseButton1Click:Connect(function()
-    AutoPickupEnabled = not AutoPickupEnabled
-    if AutoPickupEnabled then
-        PickupButton.Text = "◉ AUTO COLLECT [ON]"
-        PickupBadge.Text = "AUTO COLLECT: ACTIVE"
-        PickupBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
-    else
-        PickupButton.Text = "◉ AUTO COLLECT [OFF]"
-        PickupBadge.Text = "AUTO COLLECT: INACTIVE"
-        PickupBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
+TopBar.InputEnded:Connect(function()
+    Dragging = false
+end)
+
+UserInputService.InputChanged:Connect(function(Input)
+    if Dragging and (Input.UserInputType == Enum.UserInputType.Touch or Input.UserInputType == Enum.UserInputType.MouseMovement) then
+        local Delta = Input.Position - DragStartPos
+        MainContainer.Position = UDim2.new(StartFramePos.X.Scale, StartFramePos.X.Offset + Delta.X, StartFramePos.Y.Scale, StartFramePos.Y.Offset + Delta.Y)
     end
 end)
 
@@ -947,68 +883,37 @@ UserInputService.InputBegan:Connect(function(Input, GameProcessed)
     if GameProcessed then return end
     
     if Input.KeyCode == Enum.KeyCode.Insert then
-        ESPEnabled = not ESPEnabled
-        if ESPEnabled then
-            ESPButton.Text = "◉ WALL ESP [ON]"
-            ESPBadge.Text = "WALL ESP: ACTIVE"
-            ESPBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
-        else
-            ESPButton.Text = "◉ WALL ESP [OFF]"
-            ESPBadge.Text = "WALL ESP: INACTIVE"
-            ESPBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
-        end
+        local newState = not Settings.ESP
+        Settings.ESP = newState
+        ESPToggle.BackgroundColor3 = newState and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(60, 60, 80)
+        ESPToggle.Text = newState and "ON" or "OFF"
         UpdateESPDisplay()
     elseif Input.KeyCode == Enum.KeyCode.Home then
-        AimbotEnabled = not AimbotEnabled
-        if AimbotEnabled then
-            AimbotButton.Text = "◉ AIM ASSIST [ON]"
-            AimbotBadge.Text = "AIMBOT: ACTIVE"
-            AimbotBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
-        else
-            AimbotButton.Text = "◉ AIM ASSIST [OFF]"
-            AimbotBadge.Text = "AIMBOT: INACTIVE"
-            AimbotBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
-        end
+        local newState = not Settings.Aimbot
+        Settings.Aimbot = newState
+        AimToggle.BackgroundColor3 = newState and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(60, 60, 80)
+        AimToggle.Text = newState and "ON" or "OFF"
     elseif Input.KeyCode == Enum.KeyCode.Delete then
-        InvisibleEnabled = not InvisibleEnabled
-        if InvisibleEnabled then
-            InvisibleButton.Text = "◉ GHOST MODE [ON]"
-            InvisibleBadge.Text = "GHOST: ACTIVE"
-            InvisibleBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
-            SetInvisible(true)
-        else
-            InvisibleButton.Text = "◉ GHOST MODE [OFF]"
-            InvisibleBadge.Text = "GHOST: INACTIVE"
-            InvisibleBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
-            SetInvisible(false)
-        end
+        local newState = not Settings.Invisible
+        Settings.Invisible = newState
+        InvToggle.BackgroundColor3 = newState and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(60, 60, 80)
+        InvToggle.Text = newState and "ON" or "OFF"
+        SetInvisible(newState)
     elseif Input.KeyCode == Enum.KeyCode.End then
         ShootMurderer()
     elseif Input.KeyCode == Enum.KeyCode.PageUp then
-        AutoShootEnabled = not AutoShootEnabled
-        if AutoShootEnabled then
-            AutoShootButton.Text = "🔫 AUTO SHOOT MURDERER [ON]"
-            AutoShootBadge.Text = "AUTO SHOOT: ACTIVE"
-            AutoShootBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
-        else
-            AutoShootButton.Text = "🔫 AUTO SHOOT MURDERER [OFF]"
-            AutoShootBadge.Text = "AUTO SHOOT: INACTIVE"
-            AutoShootBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
-        end
+        local newState = not Settings.AutoShoot
+        Settings.AutoShoot = newState
+        AutoShootToggle.BackgroundColor3 = newState and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(60, 60, 80)
+        AutoShootToggle.Text = newState and "ON" or "OFF"
     elseif Input.KeyCode == Enum.KeyCode.PageDown then
-        LockTarget = not LockTarget
-        if LockTarget then
-            LockButton.Text = "🔒 LOCK TARGET [ON]"
-            LockBadge.Text = "TARGET LOCK: ON"
-            LockBadge.TextColor3 = Color3.fromRGB(0, 255, 0)
-            local murderer = FindMurderer()
-            if murderer then
-                CurrentTarget = murderer
-            end
+        local newState = not Settings.LockTarget
+        Settings.LockTarget = newState
+        LockToggle.BackgroundColor3 = newState and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(60, 60, 80)
+        LockToggle.Text = newState and "ON" or "OFF"
+        if newState then
+            CurrentTarget = FindMurderer()
         else
-            LockButton.Text = "🔒 LOCK TARGET [OFF]"
-            LockBadge.Text = "TARGET LOCK: OFF"
-            LockBadge.TextColor3 = Color3.fromRGB(255, 0, 0)
             CurrentTarget = nil
         end
     end
@@ -1046,7 +951,7 @@ local function InitializeESP()
     UpdateESPDisplay()
 end
 
--- Player added handler
+-- Events
 Players.PlayerAdded:Connect(function(Player)
     task.wait(0.5)
     if Player ~= LocalPlayer then
@@ -1058,88 +963,64 @@ Players.PlayerAdded:Connect(function(Player)
     end
 end)
 
--- Player removed handler
-Players.PlayerRemoving:Connect(function(Player)
-    RemoveAllESP(Player)
-end)
+Players.PlayerRemoving:Connect(RemoveAllESP)
 
--- Character added handler
-LocalPlayer.CharacterAdded:Connect(function(Character)
+LocalPlayer.CharacterAdded:Connect(function()
     task.wait(1.5)
-    
-    if SpeedEnabled then
-        SetSpeed(true, SpeedValue)
-    end
-    if InvisibleEnabled then
-        SetInvisible(true)
-    end
-    
+    if Settings.Speed then SetSpeed(true, Settings.SpeedValue) end
+    if Settings.Invisible then SetInvisible(true) end
     RebuildAllESP()
-    
     task.wait(0.5)
     UpdateAllRoles()
     UpdateESPDisplay()
 end)
 
--- Start everything
+-- Start
 InitializeESP()
 
 -- Main Loops
 RunService.RenderStepped:Connect(function()
-    if AimbotEnabled then
-        RunAimbot()
-    end
+    if Settings.Aimbot then RunAimbot() end
 end)
 
--- Auto Shoot Loop
 task.spawn(function()
     while task.wait(0.1) do
-        if AutoShootEnabled then
+        if Settings.AutoShoot then
             ShootMurderer()
             task.wait(0.5)
         end
     end
 end)
 
--- Auto Pickup Loop
 task.spawn(function()
     while task.wait(0.2) do
-        if AutoPickupEnabled then
+        if Settings.AutoPickup then
             pcall(AutoPickupWeapons)
         end
     end
 end)
 
--- Role Update Loop
 task.spawn(function()
     while task.wait(1) do
         UpdateAllRoles()
         UpdateESPDisplay()
-    end
-end)
-
--- Update lock target
-task.spawn(function()
-    while task.wait(0.5) do
-        if LockTarget and not CurrentTarget then
-            local murderer = FindMurderer()
-            if murderer then
-                CurrentTarget = murderer
-            end
+        if Settings.LockTarget and not CurrentTarget then
+            CurrentTarget = FindMurderer()
         end
     end
 end)
 
 print("========================================")
-print("MM2 ULTIMATE SCRIPT LOADED SUCCESSFULLY!")
+print("MM2 RAYFIELD UI LOADED SUCCESSFULLY!")
+print("Mobile & PC Supported")
 print("========================================")
 print("KEYBINDS:")
 print("INSERT - Toggle Wall ESP")
 print("HOME - Toggle Aimbot")
 print("DELETE - Toggle Invisible")
-print("END - Shoot Murderer (Manual)")
-print("PAGE UP - Toggle Auto Shoot")
-print("PAGE DOWN - Toggle Target Lock")
+print("END - Shoot Murderer")
+print("PGUP - Toggle Auto Shoot")
+print("PGDN - Toggle Target Lock")
 print("========================================")
 
 task.wait(9e9)
